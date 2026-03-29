@@ -17,14 +17,16 @@ const BAR_W   = 4;
 const BAR_GAP = 2;
 
 interface Props {
-  isRecording:     boolean;
-  liveLevels?:     number[];   // 0–100 per bar, from audio API
-  playheadRatio?:  number;     // 0–1, how far the playhead is
-  height?:         number;
+  isRecording:    boolean;
+  micLevel?:      number;      // 0–1 from live metering, drives bar heights
+  liveLevels?:    number[];    // 0–100 per bar, from audio API
+  playheadRatio?: number;      // 0–1, how far playhead is
+  height?:        number;
 }
 
 export const WaveformDisplay: React.FC<Props> = ({
   isRecording,
+  micLevel = 0,
   liveLevels,
   playheadRatio = 0.5,
   height = 148,
@@ -79,12 +81,21 @@ export const WaveformDisplay: React.FC<Props> = ({
               style={[styles.barCol, { transform: [{ scaleY: idleAnims[i] }] }]}
             >
               <View style={{
-                width: BAR_W, height: normH, borderRadius: 2,
+                width: BAR_W,
+                // During recording: scale bar height by micLevel for live reactivity
+                height: isRecording
+                  ? normH * (0.2 + micLevel * 0.8)
+                  : normH,
+                borderRadius: 2,
                 backgroundColor: barColor,
                 marginBottom: 1,
               }} />
               <View style={{
-                width: BAR_W, height: normH * 0.45, borderRadius: 2,
+                width: BAR_W,
+                height: isRecording
+                  ? normH * (0.2 + micLevel * 0.8) * 0.45
+                  : normH * 0.45,
+                borderRadius: 2,
                 backgroundColor: isRecording ? Colors.redGlow : (active ? 'rgba(0,217,192,0.2)' : Colors.borderSub),
               }} />
             </Animated.View>

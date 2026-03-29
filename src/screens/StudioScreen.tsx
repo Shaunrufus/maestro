@@ -6,10 +6,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { Colors, Radius, Spacing, Typography, APP_NAME } from '../theme';
-import { GlassCard }        from '../components/studio/GlassCard';
-import { RecordButton }     from '../components/studio/RecordButton';
-import { WaveformDisplay }  from '../components/studio/WaveformDisplay';
-import { audioService }     from '../services/audioService';
+import { GlassCard }       from '../components/studio/GlassCard';
+import { RecordButton }    from '../components/studio/RecordButton';
+import { WaveformDisplay } from '../components/studio/WaveformDisplay';
+import { startRecording, stopAndSaveRecording, playRecording, stopPlayback } from '../services/audioService';
+import { playInstrumentNote } from '../services/instrumentService';
+import { useStudioStore }  from '../store/useStudioStore';
 
 // ─── Instrument catalogue ──────────────────────────────────────────────────
 type InstrKey = 'keys' | 'guitar' | 'tabla' | 'flute' | 'sitar' | 'orchestral';
@@ -25,41 +27,40 @@ const INSTRUMENTS: { key: InstrKey; label: string; sym: string; pro: boolean }[]
 
 // ─── Screen ───────────────────────────────────────────────────────────────
 export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const [isRecording, setIsRecording] = useState(false);
-  const [isPlaying,   setIsPlaying  ] = useState(false);
-  const [autoTune,    setAutoTune   ] = useState(78);
-  const [activeInstr, setActiveInstr] = useState<InstrKey>('keys');
-  const [elapsedSec,  setElapsed    ] = useState(0);
+  // ── Zustand global state ────────────────────────────────────────────────
+  const { userId, backendUrl } = useStudioStore();
 
-  // Expandable Menu State
+  // ── Local UI state ──────────────────────────────────────────────────────
+  const [isRecording,   setIsRecording  ] = useState(false);
+  const [isPlaying,     setIsPlaying    ] = useState(false);
+  const [autoTune,      setAutoTune     ] = useState(78);
+  const [activeInstr,   setActiveInstr  ] = useState<InstrKey>('keys');
+  const [elapsedSec,    setElapsed      ] = useState(0);
+  const [micLevel,      setMicLevel     ] = useState(0);   // 0–1 live metering
+  const [lastRecordUrl, setLastUrl      ] = useState<string | null>(null);
+  const [isSaving,      setIsSaving     ] = useState(false);
+
+  // Sliding drawer
   const [menuOpen, setMenuOpen] = useState(false);
   const menuAnim = useRef(new Animated.Value(0)).current;
 
   const toggleMenu = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    Animated.spring(menuAnim, {
-      toValue: menuOpen ? 0 : 1,
-      friction: 6,
-      useNativeDriver: true,
-    }).start();
+    Animated.spring(menuAnim, { toValue: menuOpen ? 0 : 1, friction: 6, useNativeDriver: true }).start();
     setMenuOpen(!menuOpen);
   };
 
   // Recording timer
   useEffect(() => {
-    let t: any;
-    if (isRecording) {
-      t = setInterval(() => setElapsed(s => s + 1), 1000);
-    } else {
-      // Keep elapsed time until reset or new recording
-    }
+    if (!isRecording) return;
+    const t = setInterval(() => setElapsed(s => s + 1), 1000);
     return () => clearInterval(t);
   }, [isRecording]);
 
   const fmtTime = (s: number) =>
     `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
-  // Guru AI button breathing aura
+  // Guru button breathing aura
   const guruAura = useRef(new Animated.Value(0.45)).current;
   useEffect(() => {
     Animated.loop(Animated.sequence([
@@ -68,35 +69,70 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     ])).start();
   }, []);
 
+  // ── Record / Stop ────────────────────────────────────────────────────────
   const handleRecord = async () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     if (!isRecording) {
+      // START recording with live metering callback
       setIsPlaying(false);
       setElapsed(0);
-      await audioService.startRecording();
-      setIsRecording(true);
+      setMicLevel(0);
+      const ok = await startRecording((level) => setMicLevel(level));
+      if (ok) setIsRecording(true);
     } else {
-      await audioService.stopRecording();
+      // STOP + upload to Supabase
       setIsRecording(false);
+      setMicLevel(0);
+      setIsSaving(true);
+      const { cloudUrl } = await stopAndSaveRecording({
+        userId:      userId ?? 'anonymous',
+        projectName: 'Untitled Session',
+        bpm:         120,
+        key:         'C',
+        autoTunePct: autoTune,
+        instruments: [activeInstr],
+      });
+      setIsSaving(false);
+      if (cloudUrl) {
+        setLastUrl(cloudUrl);
+        console.log('[Studio] Saved to cloud:', cloudUrl);
+      }
     }
   };
 
   const handleStop = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    await audioService.stopRecording();
-    setIsRecording(false);
-    setIsPlaying(false);
-  };
-
-  const handlePlay = async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (!isPlaying) {
-      setIsPlaying(true);
-      await audioService.playRecording();
+    if (isRecording) {
+      setIsRecording(false);
+      setMicLevel(0);
+      setIsSaving(true);
+      const { cloudUrl } = await stopAndSaveRecording({
+        userId: userId ?? 'anonymous', bpm: 120, key: 'C',
+        autoTunePct: autoTune, instruments: [activeInstr],
+      });
+      setIsSaving(false);
+      if (cloudUrl) setLastUrl(cloudUrl);
+    } else {
+      await stopPlayback();
       setIsPlaying(false);
     }
   };
 
+  // ── Playback ─────────────────────────────────────────────────────────────
+  const handlePlay = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (!lastRecordUrl) return;
+    if (isPlaying) {
+      await stopPlayback();
+      setIsPlaying(false);
+    } else {
+      setIsPlaying(true);
+      await playRecording(lastRecordUrl);
+      setIsPlaying(false);
+    }
+  };
+
+  // ── Instrument tap ────────────────────────────────────────────────────────
   const handleInstr = (key: InstrKey, isPro: boolean) => {
     Haptics.selectionAsync();
     if (isPro) {
@@ -104,6 +140,7 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       return;
     }
     setActiveInstr(key);
+    playInstrumentNote(key); // plays preview sound
   };
 
   // ─── Render ──────────────────────────────────────────────────────────────
@@ -139,7 +176,7 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
             <View style={s.liveRow}>
               <View style={[s.liveDot, isRecording && s.liveDotRec]} />
               <Text style={[s.liveTx, isRecording && { color: Colors.red }]}>
-                {isRecording ? 'LIVE RECORDING' : 'Service Ready'}
+                {isSaving ? '☁ UPLOADING...' : isRecording ? 'LIVE RECORDING' : lastRecordUrl ? 'Cloud ✓' : 'Service Ready'}
               </Text>
             </View>
           </View>
@@ -150,7 +187,7 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
         {/* ── WAVEFORM ── */}
         <View style={s.waveWrap}>
-          <WaveformDisplay isRecording={isRecording} />
+          <WaveformDisplay isRecording={isRecording} micLevel={micLevel} />
           <View style={s.timeRow}>
             <Text style={s.timeTx}>0:00</Text>
             <Text style={s.timeTx}>0:30</Text>
