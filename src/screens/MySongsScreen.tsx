@@ -18,11 +18,20 @@ export const MySongsScreen: React.FC = () => {
   }, []);
 
   const loadRecordings = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const { data } = await db.getUserRecordings(user.id);
-    setRecordings(data ?? []);
-    setLoading(false);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+      const { data } = await db.getUserRecordings(user.id);
+      setRecordings(data ?? []);
+    } catch (e) {
+      console.warn("Supabase not configured, showing empty state.");
+      setRecordings([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const fmtDuration = (ms: number) => {

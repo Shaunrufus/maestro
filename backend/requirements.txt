@@ -1,11 +1,7 @@
-# backend/requirements.txt
-# Install all with: pip install -r requirements.txt
-
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
-python-multipart==0.0.9
-anthropic==0.34.2
-librosa==0.10.2
-numpy==1.26.4
-soundfile==0.12.1
-scipy==1.13.1
+fastapi
+uvicorn[standard]
+pydantic
+python-multipart
+numpy
+librosa
+soundfile

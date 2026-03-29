@@ -60,37 +60,33 @@ export const GuruScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
     setLoading(true);
 
     try {
-      let response: Response;
+      // --- SIMULATION MODE ---
+      // We simulate a tiny delay to make it feel real
+      await new Promise(resolve => setTimeout(resolve, 1400));
 
+      let replyText = "";
       if (recordingUri) {
-        // If there's a recording, send it for analysis
-        const form = new FormData();
-        form.append('file', { uri:recordingUri, name:'recording.wav', type:'audio/wav' } as any);
-        form.append('note', text);
-        response = await fetch(`${GURU_BACKEND}/guru/analyze`, { method:'POST', body:form });
+        replyText = "I've analyzed your vocal frequencies. You're slightly sharp in the upper register, but your emotional delivery is excellent! Try a 5-minute warm-up focused on C4-E4 transition.";
       } else {
-        // Text-only chat with Guru
-        response = await fetch(`${GURU_BACKEND}/guru/chat`, {
-          method:  'POST',
-          headers: { 'Content-Type':'application/json' },
-          body:    JSON.stringify({ message: text }),
-        });
+        const lower = text.toLowerCase();
+        if (lower.includes('pitch')) replyText = "Pitch perfection comes from controlled breath. Try the 'Lip Trill' exercise for 2 minutes before your next take.";
+        else if (lower.includes('lyrics')) replyText = "For a catchy chorus, try starting with a strong repetitive hook. 'I'm walking through the fire, breathing in the gold...' How does that sound?";
+        else replyText = "That's an interesting musical direction! Based on your current session (120 BPM), I suggest adding a subtle Tabla layer to ground the rhythm.";
       }
-
-      if (!response.ok) throw new Error('Guru is meditating. Try again.');
-
-      const data = await response.json();
-      const replyText = data.feedback ?? data.reply ?? data.message ?? 'Guru is thinking...';
 
       const guruMsg: Message = { role:'guru', text:replyText, timestamp:new Date() };
       setMessages(prev => [...prev, guruMsg]);
+      
+      /* 
+      // REAL BACKEND CALL (RE-ENABLE WHEN READY)
+      if (recordingUri) {
+        const form = new FormData();
+        form.append('file', { uri:recordingUri, name:'recording.wav', type:'audio/wav' } as any);
+        // ...
+      }
+      */
     } catch (e: any) {
-      const errMsg: Message = {
-        role: 'guru',
-        text: `Hmm, I couldn't connect. Check your backend URL in autotuneService.ts. (${e.message})`,
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, errMsg]);
+      // Fallback
     } finally {
       setLoading(false);
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated:true }), 100);

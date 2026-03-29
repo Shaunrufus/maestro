@@ -38,16 +38,20 @@ export const WaveformDisplay: React.FC<Props> = ({
   const idleAnims = useRef(bars.map(() => new Animated.Value(1))).current;
 
   useEffect(() => {
-    if (isRecording) {
-      idleAnims.forEach(a => a.stopAnimation());
-      return;
-    }
     const loops = idleAnims.map((anim, i) =>
       Animated.loop(
         Animated.sequence([
-          Animated.delay(i * 28),
-          Animated.timing(anim, { toValue: 0.55 + Math.random() * 0.45, duration: 500 + Math.random() * 500, useNativeDriver: true }),
-          Animated.timing(anim, { toValue: 1, duration: 500 + Math.random() * 500, useNativeDriver: true }),
+          Animated.delay(i * 20),
+          Animated.timing(anim, { 
+            toValue: isRecording ? 1.4 : 0.6 + Math.random() * 0.4, 
+            duration: isRecording ? 150 : 600 + Math.random() * 600, 
+            useNativeDriver: true 
+          }),
+          Animated.timing(anim, { 
+            toValue: 1, 
+            duration: isRecording ? 150 : 600 + Math.random() * 600, 
+            useNativeDriver: true 
+          }),
         ])
       )
     );
@@ -58,32 +62,30 @@ export const WaveformDisplay: React.FC<Props> = ({
   return (
     <View style={[styles.container, { height }]}>
       {/* Subtle grid lines */}
-      {[-40, 0, 40].map(offset => (
+      {[-44, 0, 44].map(offset => (
         <View key={offset} style={[styles.gridLine, { top: centerY + offset }]} />
       ))}
 
       {/* Bars */}
       <View style={[styles.barsWrap, { width: totalW }]}>
         {bars.map((h, i) => {
-          const normH  = (h / maxH) * (centerY - 14);
+          const normH  = (h / maxH) * (centerY - 16);
           const active = (i / bars.length) < playheadRatio;
+          const barColor = isRecording ? Colors.red : (active ? Colors.teal : Colors.textMuted);
+          
           return (
             <Animated.View
               key={i}
               style={[styles.barCol, { transform: [{ scaleY: idleAnims[i] }] }]}
             >
-              {/* Top half */}
               <View style={{
                 width: BAR_W, height: normH, borderRadius: 2,
-                backgroundColor: active ? Colors.teal : Colors.textMuted,
+                backgroundColor: barColor,
                 marginBottom: 1,
               }} />
-              {/* Mirror / reflection */}
               <View style={{
-                width: BAR_W, height: normH * 0.42, borderRadius: 2,
-                backgroundColor: active
-                  ? 'rgba(0,217,192,0.25)'
-                  : Colors.borderSub,
+                width: BAR_W, height: normH * 0.45, borderRadius: 2,
+                backgroundColor: isRecording ? Colors.redGlow : (active ? 'rgba(0,217,192,0.2)' : Colors.borderSub),
               }} />
             </Animated.View>
           );

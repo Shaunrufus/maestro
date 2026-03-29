@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { createStackNavigator }     from '@react-navigation/stack';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Text, View } from 'react-native';
 
 import { StudioScreen }   from '../screens/StudioScreen';
@@ -14,10 +14,13 @@ import { ProfileScreen }  from '../screens/ProfileScreen';
 import { GuruScreen }     from '../screens/GuruScreen';
 import { LyricsScreen }   from '../screens/LyricsScreen';
 import { PaywallScreen }  from '../screens/PaywallScreen';
+import { MultitrackScreen } from '../screens/MultitrackScreen';
+import { CompingScreen }    from '../screens/CompingScreen';
+import { MixModeScreen }    from '../screens/MixModeScreen';
 import { Colors }         from '../theme';
 
 const Tab   = createBottomTabNavigator();
-const Stack = createStackNavigator();
+const Stack = createNativeStackNavigator();
 
 // Tab icon component
 const TabIcon = ({ label, active }: { label: string; active: boolean }) => (
@@ -39,6 +42,9 @@ function StudioStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="StudioMain"  component={StudioScreen} />
+      <Stack.Screen name="Multitrack"  component={MultitrackScreen} />
+      <Stack.Screen name="Comping"     component={CompingScreen} />
+      <Stack.Screen name="MixMode"     component={MixModeScreen} />
       <Stack.Screen name="Guru"        component={GuruScreen}   />
       <Stack.Screen name="Lyrics"      component={LyricsScreen} />
       <Stack.Screen name="Paywall"     component={PaywallScreen} />

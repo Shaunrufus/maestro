@@ -1,16 +1,15 @@
-// src/screens/StudioScreen.tsx
-// MAESTRO — Studio Main Screen (Phase 2 Integrated)
-// Refactored to work within the AppNavigator stack.
-
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Animated, Easing, Pressable, SafeAreaView,
+  Animated, Easing, Pressable,
   ScrollView, StatusBar, StyleSheet, Text, View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
 import { Colors, Radius, Spacing, Typography, APP_NAME } from '../theme';
 import { GlassCard }        from '../components/studio/GlassCard';
 import { RecordButton }     from '../components/studio/RecordButton';
 import { WaveformDisplay }  from '../components/studio/WaveformDisplay';
+import { audioService }     from '../services/audioService';
 
 // ─── Instrument catalogue ──────────────────────────────────────────────────
 type InstrKey = 'keys' | 'guitar' | 'tabla' | 'flute' | 'sitar' | 'orchestral';
@@ -32,10 +31,28 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const [activeInstr, setActiveInstr] = useState<InstrKey>('keys');
   const [elapsedSec,  setElapsed    ] = useState(0);
 
+  // Expandable Menu State
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuAnim = useRef(new Animated.Value(0)).current;
+
+  const toggleMenu = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Animated.spring(menuAnim, {
+      toValue: menuOpen ? 0 : 1,
+      friction: 6,
+      useNativeDriver: true,
+    }).start();
+    setMenuOpen(!menuOpen);
+  };
+
   // Recording timer
   useEffect(() => {
-    if (!isRecording) { setElapsed(0); return; }
-    const t = setInterval(() => setElapsed(s => s + 1), 1000);
+    let t: any;
+    if (isRecording) {
+      t = setInterval(() => setElapsed(s => s + 1), 1000);
+    } else {
+      // Keep elapsed time until reset or new recording
+    }
     return () => clearInterval(t);
   }, [isRecording]);
 
@@ -51,17 +68,37 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     ])).start();
   }, []);
 
-  const handleRecord = () => {
-    if (!isRecording) setIsPlaying(false);
-    setIsRecording(p => !p);
+  const handleRecord = async () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (!isRecording) {
+      setIsPlaying(false);
+      setElapsed(0);
+      await audioService.startRecording();
+      setIsRecording(true);
+    } else {
+      await audioService.stopRecording();
+      setIsRecording(false);
+    }
   };
 
-  const handleStop = () => {
+  const handleStop = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    await audioService.stopRecording();
     setIsRecording(false);
     setIsPlaying(false);
   };
 
+  const handlePlay = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (!isPlaying) {
+      setIsPlaying(true);
+      await audioService.playRecording();
+      setIsPlaying(false);
+    }
+  };
+
   const handleInstr = (key: InstrKey, isPro: boolean) => {
+    Haptics.selectionAsync();
     if (isPro) {
       navigation.navigate('Paywall', { instrument: key });
       return;
@@ -72,7 +109,7 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   // ─── Render ──────────────────────────────────────────────────────────────
   return (
     <View style={s.root}>
-      <StatusBar barStyle="light-content" backgroundColor={Colors.bg} />
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
       {/* Ambient glows */}
       <View style={s.glowPurple} />
@@ -86,12 +123,9 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         <View style={s.header}>
           <View>
             <Text style={s.logo}>{APP_NAME}</Text>
-            <Text style={s.logoSub}>Virtual Studio</Text>
+            <Text style={s.logoSub}>Professional Studio Experience</Text>
           </View>
           <View style={s.headerR}>
-            <Pressable style={s.headerBtn} onPress={() => navigation.navigate('Lyrics')}>
-              <Text style={s.headerBtnTx}>✎</Text>
-            </Pressable>
             <View style={s.avatar}>
               <Text style={s.avatarTx}>S</Text>
             </View>
@@ -101,16 +135,16 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         {/* ── SONG CARD ── */}
         <GlassCard style={s.songCard}>
           <View style={s.songRow}>
-            <Text style={s.songName}>Untitled Session</Text>
+            <Text style={s.songName}>Master Session</Text>
             <View style={s.liveRow}>
               <View style={[s.liveDot, isRecording && s.liveDotRec]} />
               <Text style={[s.liveTx, isRecording && { color: Colors.red }]}>
-                {isRecording ? 'REC' : 'Ready'}
+                {isRecording ? 'LIVE RECORDING' : 'Service Ready'}
               </Text>
             </View>
           </View>
           <Text style={s.songMeta}>
-            BPM 120  ·  Key: C Major  ·  {fmtTime(elapsedSec)}
+            BPM 120  ·  44.1 kHz  ·  {fmtTime(elapsedSec)}
           </Text>
         </GlassCard>
 
@@ -120,26 +154,26 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           <View style={s.timeRow}>
             <Text style={s.timeTx}>0:00</Text>
             <Text style={s.timeTx}>0:30</Text>
-            <Text style={s.timeTx}>1:00</Text>
+            <Text style={s.timeTx}>{fmtTime(elapsedSec)}</Text>
           </View>
         </View>
 
         {/* ── PITCH STATS ── */}
         <GlassCard style={s.pitchRow}>
           <View style={s.pitchSec}>
-            <Text style={s.statLbl}>PITCH</Text>
+            <Text style={s.statLbl}>REAL-TIME PITCH</Text>
             <View style={s.pitchTrack}>
-              <View style={[s.pitchFill, { width: '67%' }]} />
+              <View style={[s.pitchFill, { width: '68%' }]} />
               <View style={s.pitchDot} />
             </View>
           </View>
           <View style={s.pitchSec}>
-            <Text style={s.statLbl}>LOUDNESS</Text>
-            <Text style={s.loudVal}>-12 dB</Text>
+            <Text style={s.statLbl}>GAIN LEVEL</Text>
+            <Text style={s.loudVal}>-4.8 dB</Text>
           </View>
           <View style={s.noteCard}>
-            <Text style={s.noteVal}>C4</Text>
-            <Text style={s.noteSub}>On key</Text>
+            <Text style={s.noteVal}>A#</Text>
+            <Text style={s.noteSub}>Perfect</Text>
           </View>
         </GlassCard>
 
@@ -148,12 +182,12 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           <Pressable style={s.tBtn}><Text style={s.tBtnTx}>⏮</Text></Pressable>
           <Pressable
             style={[s.tBtn, isPlaying && s.tBtnActive]}
-            onPress={() => setIsPlaying(p => !p)}
+            onPress={handlePlay}
           >
             <Text style={s.tBtnTx}>{isPlaying ? '⏸' : '▶'}</Text>
           </Pressable>
 
-          <RecordButton isRecording={isRecording} onPress={handleRecord} size={68} />
+          <RecordButton isRecording={isRecording} onPress={handleRecord} size={70} />
 
           <Pressable style={s.tBtn} onPress={handleStop}>
             <Text style={s.tBtnTx}>⏹</Text>
@@ -164,7 +198,7 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         {/* ── AUTO-TUNE SLIDER ── */}
         <GlassCard style={s.atCard}>
           <View style={s.atHdr}>
-            <Text style={s.atLbl}>Auto-Tune</Text>
+            <Text style={s.atLbl}>AI Voice Correction</Text>
             <Text style={s.atVal}>{autoTune}%</Text>
           </View>
           <View style={s.sliderTrack}>
@@ -172,16 +206,16 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
             <View style={[s.sliderThumb, { left: `${autoTune}%` }]} />
           </View>
           <View style={s.atEnds}>
-            <Text style={s.atEnd}>Natural</Text>
-            <Text style={s.atEnd}>Robotic</Text>
+            <Text style={s.atEnd}>Organic</Text>
+            <Text style={s.atEnd}>Engineered</Text>
           </View>
         </GlassCard>
 
         {/* ── INSTRUMENTS ── */}
         <View style={s.instrSec}>
           <View style={s.instrHdr}>
-            <Text style={s.instrTitle}>Instruments</Text>
-            <Text style={s.instrSub}>Tap to layer</Text>
+            <Text style={s.instrTitle}>Acoustic Layers</Text>
+            <Text style={s.instrSub}>Multi-track enabled</Text>
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {INSTRUMENTS.map(instr => {
@@ -211,20 +245,39 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           </ScrollView>
         </View>
 
-        {/* ── GURU AI FLOATING BUTTON ── */}
-        <View style={s.bottomArea}>
-          <Pressable
-            style={s.guruWrap}
-            onPress={() => navigation.navigate('Guru')}
-          >
-            <Animated.View style={[s.guruAura, { opacity: guruAura }]} />
-            <View style={s.guruRing} />
-            <View style={s.guruBtn}>
-              <Text style={s.guruTx}>AI</Text>
-            </View>
-            <Text style={s.guruLbl}>GURU</Text>
+        {/* ── SLIDING SIDE DRAWER MENU ── */}
+        <Animated.View style={[s.sideDrawer, {
+          transform: [{ translateX: menuAnim.interpolate({ inputRange: [0, 1], outputRange: [72, 0] }) }]
+        }]}>
+          {/* Hemisphere Handle */}
+          <Pressable style={s.drawerTab} onPress={toggleMenu}>
+             <Text style={s.drawerTabIcon}>{menuOpen ? '▶' : '◀'}</Text>
           </Pressable>
-        </View>
+
+          {/* Tools Panel */}
+          <View style={s.drawerPanel}>
+            <Pressable style={s.drawerBtn} onPress={() => { toggleMenu(); navigation.navigate('Multitrack'); }}>
+              <View style={[s.drawerIconBg, { backgroundColor: Colors.teal }]}>
+                <Text style={s.drawerIconTx}>🎛️</Text>
+              </View>
+              <Text style={s.drawerLbl}>DAW</Text>
+            </Pressable>
+
+            <Pressable style={s.drawerBtn} onPress={() => { toggleMenu(); navigation.navigate('Lyrics'); }}>
+              <View style={[s.drawerIconBg, { backgroundColor: Colors.gold }]}>
+                <Text style={s.drawerIconTx}>✎</Text>
+              </View>
+              <Text style={s.drawerLbl}>Lyrics</Text>
+            </Pressable>
+
+            <Pressable style={s.drawerBtn} onPress={() => { toggleMenu(); navigation.navigate('Guru'); }}>
+              <View style={[s.drawerIconBg, { backgroundColor: '#6A2AE6' }]}>
+                <Text style={s.drawerIconTx}>✨</Text>
+              </View>
+              <Text style={s.drawerLbl}>Guru</Text>
+            </Pressable>
+          </View>
+        </Animated.View>
 
       </SafeAreaView>
     </View>
@@ -237,9 +290,9 @@ const s = StyleSheet.create({
   safe: { flex: 1 },
 
   // Ambient glows
-  glowPurple: { position:'absolute', width:300, height:300, borderRadius:150, backgroundColor:'rgba(106,42,230,0.35)', top:-50, left:-50 },
-  glowTeal:   { position:'absolute', width:260, height:260, borderRadius:130, backgroundColor:'rgba(0,217,192,0.20)', top:-80, right:-30 },
-  glowGold:   { position:'absolute', width:220, height:220, borderRadius:110, backgroundColor:'rgba(212,175,55,0.25)', top:380, left:60 },
+  glowPurple: { position:'absolute', width:300, height:300, borderRadius:150, backgroundColor:'rgba(106,42,230,0.3)', top:-50, left:-50 },
+  glowTeal:   { position:'absolute', width:260, height:260, borderRadius:130, backgroundColor:'rgba(0,217,192,0.18)', top:-80, right:-30 },
+  glowGold:   { position:'absolute', width:220, height:220, borderRadius:110, backgroundColor:'rgba(212,175,55,0.22)', top:420, left:60 },
   veil:       { position:'absolute', top:0, left:0, right:0, bottom:0, backgroundColor:'rgba(11,11,18,0.48)' },
 
   // Header
@@ -312,12 +365,13 @@ const s = StyleSheet.create({
   instrLbl:    { fontSize:10, color:Colors.textMuted },
   instrLblOn:  { color:Colors.teal, fontWeight:'600' },
 
-  // Bottom Area (Floating Guru)
-  bottomArea:  { marginTop:'auto' as any, height:120, alignItems:'flex-end', paddingRight:Spacing.lg, justifyContent:'center' },
-  guruWrap:    { alignItems:'center' },
-  guruAura:    { position:'absolute', width:68, height:68, borderRadius:34, backgroundColor:Colors.goldGlow },
-  guruRing:    { position:'absolute', width:58, height:58, borderRadius:29, borderWidth:1.5, borderColor:'rgba(242,200,75,0.4)' },
-  guruBtn:     { width:50, height:50, borderRadius:25, backgroundColor:Colors.gold, alignItems:'center', justifyContent:'center', shadowColor:Colors.gold, shadowOffset:{width:0,height:0}, shadowOpacity:0.9, shadowRadius:18, elevation:10 },
-  guruTx:      { fontSize:13, fontWeight:'700', color:Colors.bg },
-  guruLbl:     { fontSize:9, fontWeight:'700', color:Colors.gold, marginTop:4, letterSpacing:1 },
+  // Sliding drawer
+  sideDrawer: { position: 'absolute', right: 0, top: '40%', flexDirection: 'row', alignItems: 'center', zIndex: 100 },
+  drawerTab: { width: 34, height: 70, backgroundColor: 'rgba(255, 255, 255, 0.5)', borderTopLeftRadius: 35, borderBottomLeftRadius: 35, borderWidth: 1, borderRightWidth: 0, borderColor: 'rgba(255, 255, 255, 0.8)', justifyContent: 'center', alignItems: 'flex-start', paddingLeft: 10, shadowColor: '#000', shadowOffset: {width: -2, height: 0}, shadowOpacity: 0.3, shadowRadius: 5 },
+  drawerTabIcon: { color: '#ffffff', fontSize: 16, fontWeight: '900' },
+  drawerPanel: { width: 72, backgroundColor: 'rgba(15, 15, 25, 0.85)', borderTopLeftRadius: 20, borderBottomLeftRadius: 20, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.15)', borderRightWidth: 0, paddingVertical: 20, alignItems: 'center', gap: 24, shadowColor: '#000', shadowOffset: {width: -4, height: 0}, shadowOpacity: 0.5, shadowRadius: 10 },
+  drawerBtn: { alignItems: 'center' },
+  drawerIconBg: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.8, shadowRadius: 8, elevation: 6 },
+  drawerIconTx: { fontSize: 18, color: Colors.bg },
+  drawerLbl: { fontSize: 10, fontWeight: '700', color: '#fff', marginTop: 6, letterSpacing: 0.5 },
 });

@@ -12,10 +12,21 @@ export const ProfileScreen: React.FC = () => {
   const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUser(data.user));
+    try {
+      supabase.auth.getUser().then(({ data }) => setUser(data?.user ?? null));
+    } catch (e) {
+      console.warn("Supabase not configured.");
+      setUser(null);
+    }
   }, []);
 
-  const signOut = () => supabase.auth.signOut();
+  const signOut = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      // Ignore
+    }
+  };
 
   return (
     <View style={s.root}>
