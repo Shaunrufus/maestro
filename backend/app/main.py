@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routes.audio_routes      import router as audio_router
-# from app.routes.guru_routes        import router as guru_router
+from app.routes.guru_routes        import router as guru_router
 from app.routes.multitrack_routes  import router as multitrack_router
 
 app = FastAPI(
@@ -30,7 +30,7 @@ app.add_middleware(
 
 # Register all routers
 app.include_router(audio_router)
-# app.include_router(guru_router)
+app.include_router(guru_router)
 app.include_router(multitrack_router)
 
 @app.get("/health")

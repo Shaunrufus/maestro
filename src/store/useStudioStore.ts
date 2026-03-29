@@ -107,7 +107,7 @@ export const useStudioStore = create<StudioState>((set) => ({
   userId:         null,
   userEmail:      null,
   isPro:          false,
-  backendUrl:     'https://YOUR_RAILWAY_URL',  // ← set this after Railway deploy
+  backendUrl:     'https://maestro-production-c525.up.railway.app',
 
   setRecording:   (v) => set({ isRecording: v }),
   setPlaying:     (v) => set({ isPlaying: v }),

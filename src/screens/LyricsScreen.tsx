@@ -28,7 +28,7 @@ const MOODS: { key: Mood; label: string; color: string }[] = [
   { key:'motivational',label:'Motivational',color:Colors.gold  },
 ];
 
-const BACKEND = 'https://YOUR_BACKEND_URL';
+const BACKEND = 'https://maestro-production-c525.up.railway.app';
 
 export const LyricsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const [lyrics,      setLyrics     ] = useState('');

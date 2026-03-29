@@ -5,3 +5,6 @@ python-multipart
 numpy
 librosa
 soundfile
+httpx
+anthropic
+supabase

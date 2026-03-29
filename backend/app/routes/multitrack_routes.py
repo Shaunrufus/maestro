@@ -70,7 +70,7 @@ async def render_comp_endpoint(req: RenderCompRequest):
     # TODO: fetch take audio bytes from Supabase Storage by project_id
     return {
         "status":       "ok",
-        "output_url":   f"https://YOUR_SUPABASE_URL/storage/v1/object/recordings/{req.project_id}/comp.wav",
+        "output_url":   f"https://cmbfzcqjfbrbioqmvzoh.supabase.co/storage/v1/object/recordings/{req.project_id}/comp.wav",
         "crossfade_ms": req.crossfade_ms,
         "regions":      len(req.regions),
     }
@@ -105,6 +105,6 @@ async def mixdown(req: MixdownRequest):
         "config":        config,
         "loudness_lufs": req.loudness_lufs,
         "format":        req.format,
-        "download_url":  f"https://YOUR_SUPABASE_URL/storage/v1/object/recordings/{req.project_id}/final_mix.wav",
+        "download_url":  f"https://cmbfzcqjfbrbioqmvzoh.supabase.co/storage/v1/object/recordings/{req.project_id}/final_mix.wav",
         "note":          "Connect Supabase service key in env to enable real file processing.",
     }

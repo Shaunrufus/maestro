@@ -2,7 +2,7 @@
 // Sends a WAV recording to the MAESTRO backend for pitch correction.
 // Backend endpoint: POST /audio/autotune (FastAPI — see backend/ folder)
 
-const BACKEND_URL = 'https://YOUR_BACKEND_URL'; // Railway / Vercel URL goes here
+const BACKEND_URL = 'https://maestro-production-c525.up.railway.app';
 
 export interface AutotuneResult {
   tunedUrl:     string; // URL of the corrected audio file in Supabase Storage

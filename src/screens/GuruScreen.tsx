@@ -22,7 +22,7 @@ const QUICK_ACTIONS = [
   { label: 'Mix tips',             prompt: 'Give me mixing tips for my recording.' },
 ];
 
-const GURU_BACKEND = 'https://YOUR_BACKEND_URL'; // Railway URL
+const GURU_BACKEND = 'https://maestro-production-c525.up.railway.app';
 
 export const GuruScreen: React.FC<{ navigation: any; route: any }> = ({ navigation, route }) => {
   const [messages, setMessages] = useState<Message[]>([
@@ -60,36 +60,32 @@ export const GuruScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
     setLoading(true);
 
     try {
-      // --- SIMULATION MODE ---
-      // We simulate a tiny delay to make it feel real
-      await new Promise(resolve => setTimeout(resolve, 1400));
-
-      let replyText = "";
       if (recordingUri) {
-        replyText = "I've analyzed your vocal frequencies. You're slightly sharp in the upper register, but your emotional delivery is excellent! Try a 5-minute warm-up focused on C4-E4 transition.";
-      } else {
-        const lower = text.toLowerCase();
-        if (lower.includes('pitch')) replyText = "Pitch perfection comes from controlled breath. Try the 'Lip Trill' exercise for 2 minutes before your next take.";
-        else if (lower.includes('lyrics')) replyText = "For a catchy chorus, try starting with a strong repetitive hook. 'I'm walking through the fire, breathing in the gold...' How does that sound?";
-        else replyText = "That's an interesting musical direction! Based on your current session (120 BPM), I suggest adding a subtle Tabla layer to ground the rhythm.";
-      }
-
-      const guruMsg: Message = { role:'guru', text:replyText, timestamp:new Date() };
-      setMessages(prev => [...prev, guruMsg]);
-      
-      /* 
-      // REAL BACKEND CALL (RE-ENABLE WHEN READY)
-      if (recordingUri) {
+        // Real backend call for audio analysis
         const form = new FormData();
-        form.append('file', { uri:recordingUri, name:'recording.wav', type:'audio/wav' } as any);
-        // ...
+        form.append('file', { uri: recordingUri, name: 'recording.m4a', type: 'audio/mp4' } as any);
+        form.append('note', text);
+        const res = await fetch(`${GURU_BACKEND}/guru/analyze`, { method: 'POST', body: form });
+        const data = await res.json();
+        const guruMsg: Message = { role:'guru', text: data.feedback || data.reply || 'Analysis complete!', timestamp: new Date() };
+        setMessages(prev => [...prev, guruMsg]);
+      } else {
+        // Real backend call for chat
+        const res = await fetch(`${GURU_BACKEND}/guru/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text.trim() }),
+        });
+        const data = await res.json();
+        const guruMsg: Message = { role:'guru', text: data.reply || 'I heard you!', timestamp: new Date() };
+        setMessages(prev => [...prev, guruMsg]);
       }
-      */
     } catch (e: any) {
-      // Fallback
+      const errMsg: Message = { role:'guru', text: 'Hmm, I lost connection to the studio server. Try again in a moment!', timestamp: new Date() };
+      setMessages(prev => [...prev, errMsg]);
     } finally {
       setLoading(false);
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated:true }), 100);
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
     }
   };
 
