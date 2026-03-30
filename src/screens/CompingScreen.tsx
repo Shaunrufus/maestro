@@ -6,7 +6,7 @@ import {
 import { useStudioStore } from '../store/useStudioStore';
 import { Colors, Radius, Spacing } from '../theme';
 
-const BACKEND = 'https://YOUR_RAILWAY_URL'; // replace after deploy
+const BACKEND = 'https://maestro-production-c525.up.railway.app';
 
 // A "region" is a time slice — which take is chosen for that slice
 interface CompRegion {

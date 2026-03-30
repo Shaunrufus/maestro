@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { Colors, Radius, Spacing } from '../theme';
 
-const BACKEND = 'https://YOUR_RAILWAY_URL';
+const BACKEND = 'https://maestro-production-c525.up.railway.app';
 
 type Preset   = 'clean_pop' | 'lofi' | 'worship' | 'bollywood' | 'hip_hop' | 'classical';
 type ExportFmt = 'wav_hq' | 'mp3_social' | 'stems';

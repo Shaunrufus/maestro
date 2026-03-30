@@ -1,13 +1,13 @@
 // src/services/audioService.ts
 // MAESTRO — Audio Recording + Cloud Upload Service
 // Records via expo-av → uploads to Supabase Storage → saves metadata to DB
-//
-// Install if missing:
-//   npx expo install expo-av expo-file-system
 
 import { Audio } from 'expo-av';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { supabase } from './supabase';
+
+const SUPABASE_URL  = 'https://cmbfzcqjfbrbioqmvzoh.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNtYmZ6Y3FqZmJyYmlvcW12em9oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2Nzc0NTEsImV4cCI6MjA5MDI1MzQ1MX0.ndKWwDav0-9xQTnq1Zcu-hlyLnOqnJHd9Xml8D-hsjU';
 
 // ─── State ────────────────────────────────────────────────────────────────
 let activeRecording: Audio.Recording | null = null;
@@ -71,6 +71,59 @@ export const startRecording = async (
   }
 };
 
+// ─── Upload file to Supabase Storage via REST API ─────────────────────────
+// Uses expo-file-system to read base64, then uploads via Supabase REST.
+// This is the ONLY reliable upload path in React Native / Expo Go.
+async function uploadToSupabase(
+  localUri: string,
+  storagePath: string
+): Promise<string | null> {
+  try {
+    // Step 1: Read file as base64 string
+    const base64 = await FileSystem.readAsStringAsync(localUri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    // Step 2: Decode base64 → binary string → Uint8Array
+    const binaryString = atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    // Step 3: Upload directly to Supabase Storage REST API
+    // Using fetch with Uint8Array body — most reliable in RN
+    const uploadUrl = `${SUPABASE_URL}/storage/v1/object/recordings/${storagePath}`;
+    const response = await fetch(uploadUrl, {
+      method:  'POST',
+      headers: {
+        'Authorization': `Bearer ${SUPABASE_ANON}`,
+        'Content-Type':  'audio/mp4',
+        'x-upsert':      'false',
+      },
+      body: bytes,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[Audio] Storage REST upload failed:', response.status, errorText);
+      return null;
+    }
+
+    console.log('[Audio] Upload to Supabase Storage ✓');
+
+    // Step 4: Create a signed URL for playback (30 days)
+    const { data: signedData } = await supabase.storage
+      .from('recordings')
+      .createSignedUrl(storagePath, 60 * 60 * 24 * 30);
+
+    return signedData?.signedUrl ?? null;
+  } catch (e) {
+    console.error('[Audio] uploadToSupabase error:', e);
+    return null;
+  }
+}
+
 // ─── Stop recording + upload to Supabase ─────────────────────────────────
 export const stopAndSaveRecording = async (options: {
   userId:       string;
@@ -84,13 +137,15 @@ export const stopAndSaveRecording = async (options: {
     return { localUri: null, cloudUrl: null, durationMs: 0 };
   }
 
+  let localUri: string | null = null;
+
   try {
     // Get duration before stopping
     const status = await activeRecording.getStatusAsync();
     const durationMs = (status as any).durationMillis ?? 0;
 
     await activeRecording.stopAndUnloadAsync();
-    const localUri = activeRecording.getURI();
+    localUri = activeRecording.getURI() ?? null;
     activeRecording = null;
 
     console.log('[Audio] Recording stopped. URI:', localUri, 'Duration:', durationMs);
@@ -100,35 +155,17 @@ export const stopAndSaveRecording = async (options: {
     // ── Upload to Supabase Storage ──────────────────────────────────────
     let cloudUrl: string | null = null;
     try {
-      const base64 = await FileSystem.readAsStringAsync(localUri, {
-        encoding: 'base64' as any,
-      });
+      const userId   = options.userId || 'anonymous';
+      const fileName = `${userId}/${Date.now()}.m4a`;
 
-      // Decode base64 → Uint8Array for Supabase storage upload
-      const byteChars = atob(base64);
-      const byteArray = new Uint8Array(byteChars.length);
-      for (let i = 0; i < byteChars.length; i++) {
-        byteArray[i] = byteChars.charCodeAt(i);
-      }
+      cloudUrl = await uploadToSupabase(localUri, fileName);
 
-      const fileName = `${options.userId}/${Date.now()}.m4a`;
-      const { error: uploadError } = await supabase.storage
-        .from('recordings')
-        .upload(fileName, byteArray, { contentType: 'audio/mp4' });
-
-      if (uploadError) {
-        console.error('[Audio] Upload error:', uploadError.message);
-      } else {
-        const { data: signedData } = await supabase.storage
-          .from('recordings')
-          .createSignedUrl(fileName, 60 * 60 * 24 * 30); // 30-day URL
-        cloudUrl = signedData?.signedUrl ?? null;
-
+      if (cloudUrl) {
         // Save metadata to database
         const { error: dbError } = await supabase.from('recordings').insert({
-          user_id:       options.userId,
+          user_id:       userId,
           project_name:  options.projectName ?? 'Untitled Session',
-          file_url:      cloudUrl ?? '',
+          file_url:      cloudUrl,
           duration_ms:   Math.round(durationMs),
           bpm:           options.bpm       ?? 120,
           key:           options.key       ?? 'C',
@@ -136,14 +173,21 @@ export const stopAndSaveRecording = async (options: {
           instruments:   options.instruments  ?? [],
         });
 
-        if (dbError) console.error('[Audio] DB insert error:', dbError.message);
-        else console.log('[Audio] Saved to Supabase:', cloudUrl);
+        if (dbError) {
+          console.error('[Audio] DB insert error:', dbError.message);
+        } else {
+          console.log('[Audio] Saved to Supabase ✓', cloudUrl);
+        }
       }
     } catch (uploadErr) {
       console.error('[Audio] Upload failed:', uploadErr);
     } finally {
-      // Clean up local temp file after upload
-      await FileSystem.deleteAsync(localUri, { idempotent: true });
+      // Clean up local temp file
+      try {
+        await FileSystem.deleteAsync(localUri, { idempotent: true });
+      } catch {
+        // Ignore cleanup errors
+      }
     }
 
     return { localUri, cloudUrl, durationMs };

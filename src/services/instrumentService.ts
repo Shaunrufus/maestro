@@ -21,23 +21,15 @@ type InstrKey = 'keys' | 'guitar' | 'tabla' | 'flute' | 'sitar' | 'orchestral';
 
 // Map instrument key → require() path
 // When files don't exist yet we use null (silent mode).
+// Uncomment the require() statements once you have downloaded the MP3s into the folder.
 const SOUND_MAP: Record<InstrKey, any | null> = {
-  keys:        requireSafe('./../../assets/sounds/keys.mp3'),
-  guitar:      requireSafe('./../../assets/sounds/guitar.mp3'),
-  tabla:       requireSafe('./../../assets/sounds/tabla.mp3'),
-  flute:       requireSafe('./../../assets/sounds/flute.mp3'),
-  sitar:       requireSafe('./../../assets/sounds/sitar.mp3'),
-  orchestral:  requireSafe('./../../assets/sounds/orchestral.mp3'),
+  keys:        null, // require('../../assets/sounds/keys.mp3'),
+  guitar:      null, // require('../../assets/sounds/guitar.mp3'),
+  tabla:       null, // require('../../assets/sounds/tabla.mp3'),
+  flute:       null, // require('../../assets/sounds/flute.mp3'),
+  sitar:       null, // require('../../assets/sounds/sitar.mp3'),
+  orchestral:  null, // require('../../assets/sounds/orchestral.mp3'),
 };
-
-// Safe require — returns null if the file doesn't exist yet
-function requireSafe(path: string): any | null {
-  try {
-    return require(path);
-  } catch {
-    return null;
-  }
-}
 
 let currentPreviewSound: Audio.Sound | null = null;
 
