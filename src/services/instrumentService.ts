@@ -23,12 +23,12 @@ type InstrKey = 'keys' | 'guitar' | 'tabla' | 'flute' | 'sitar' | 'orchestral';
 // When files don't exist yet we use null (silent mode).
 // Uncomment the require() statements once you have downloaded the MP3s into the folder.
 const SOUND_MAP: Record<InstrKey, any | null> = {
-  keys:        null, // require('../../assets/sounds/keys.mp3'),
-  guitar:      null, // require('../../assets/sounds/guitar.mp3'),
-  tabla:       null, // require('../../assets/sounds/tabla.mp3'),
-  flute:       null, // require('../../assets/sounds/flute.mp3'),
-  sitar:       null, // require('../../assets/sounds/sitar.mp3'),
-  orchestral:  null, // require('../../assets/sounds/orchestral.mp3'),
+  keys:        require('../../assets/sounds/keys.wav'),
+  guitar:      require('../../assets/sounds/guitar.wav'),
+  tabla:       require('../../assets/sounds/tabla.wav'),
+  flute:       require('../../assets/sounds/flute.wav'),
+  sitar:       require('../../assets/sounds/sitar.wav'),
+  orchestral:  require('../../assets/sounds/orchestral.wav'),
 };
 
 let currentPreviewSound: Audio.Sound | null = null;

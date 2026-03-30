@@ -91,22 +91,18 @@ async function uploadToSupabase(
       bytes[i] = binaryString.charCodeAt(i);
     }
 
-    // Step 3: Upload directly to Supabase Storage REST API
-    // Using fetch with Uint8Array body — most reliable in RN
-    const uploadUrl = `${SUPABASE_URL}/storage/v1/object/recordings/${storagePath}`;
-    const response = await fetch(uploadUrl, {
-      method:  'POST',
-      headers: {
-        'Authorization': `Bearer ${SUPABASE_ANON}`,
-        'Content-Type':  'audio/mp4',
-        'x-upsert':      'false',
-      },
-      body: bytes,
-    });
+    // Step 3: Upload directly to Supabase Storage using the JS SDK
+    // The SDK automatically injects the active user's session JWT, 
+    // satisfying Row-Level Security policies.
+    const { error: uploadError } = await supabase.storage
+      .from('recordings')
+      .upload(storagePath, bytes.buffer, { 
+        contentType: 'audio/mp4',
+        upsert: true
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('[Audio] Storage REST upload failed:', response.status, errorText);
+    if (uploadError) {
+      console.error('[Audio] Storage SDK upload failed:', uploadError.message);
       return null;
     }
 

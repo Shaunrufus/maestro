@@ -44,6 +44,26 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuAnim = useRef(new Animated.Value(0)).current;
 
+  // Dynamic Glow
+  const glowAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    let toVal = 0; // Idle purple
+    if (isRecording) toVal = 1; // Recording red
+    else if (menuOpen) toVal = 2; // Menu open gold
+    
+    Animated.timing(glowAnim, {
+      toValue: toVal,
+      duration: 800,
+      useNativeDriver: false, // Color interpolation requires false
+    }).start();
+  }, [isRecording, menuOpen]);
+
+  const glowColor = glowAnim.interpolate({
+    inputRange: [0, 1, 2],
+    outputRange: ['rgba(106,42,230,0.3)', 'rgba(255,59,92,0.38)', 'rgba(212,175,55,0.38)']
+  });
+
   const toggleMenu = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     Animated.spring(menuAnim, { toValue: menuOpen ? 0 : 1, friction: 6, useNativeDriver: true }).start();
@@ -149,7 +169,7 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
       {/* Ambient glows */}
-      <View style={s.glowPurple} />
+      <Animated.View style={[s.glowPurple, { backgroundColor: glowColor }]} />
       <View style={s.glowTeal}   />
       <View style={s.glowGold}   />
       <View style={s.veil}       />
@@ -185,13 +205,24 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           </Text>
         </GlassCard>
 
-        {/* ── WAVEFORM ── */}
+        {/* ── WAVEFORM & VU METER ── */}
         <View style={s.waveWrap}>
-          <WaveformDisplay isRecording={isRecording} micLevel={micLevel} />
-          <View style={s.timeRow}>
-            <Text style={s.timeTx}>0:00</Text>
-            <Text style={s.timeTx}>0:30</Text>
-            <Text style={s.timeTx}>{fmtTime(elapsedSec)}</Text>
+          <View style={{ flex: 1 }}>
+            <WaveformDisplay isRecording={isRecording} micLevel={micLevel} />
+            <View style={s.timeRow}>
+              <Text style={s.timeTx}>0:00</Text>
+              <Text style={s.timeTx}>0:30</Text>
+              <Text style={s.timeTx}>{fmtTime(elapsedSec)}</Text>
+            </View>
+          </View>
+          
+          {/* VU Meter */}
+          <View style={{ width: 12, height: 140, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 6, overflow:'hidden', justifyContent:'flex-end', marginLeft: Spacing.md }}>
+            <Animated.View style={{
+              height: `${micLevel * 100}%`,
+              backgroundColor: micLevel > 0.8 ? '#FF3B5C' : micLevel > 0.5 ? '#D4AF37' : '#00D9C0',
+              borderRadius: 6,
+            }} />
           </View>
         </View>
 
@@ -352,8 +383,8 @@ const s = StyleSheet.create({
   liveTx:   { fontSize:10, fontWeight:'600', color:Colors.teal },
   songMeta: { ...Typography.caption },
 
-  // Waveform
-  waveWrap:  { marginHorizontal:Spacing.lg, marginBottom:Spacing.xs, flex:1, justifyContent:'center' },
+  // Waveform & VU
+  waveWrap:  { marginHorizontal:Spacing.lg, marginBottom:Spacing.xs, flex:1, flexDirection: 'row', alignItems: 'center', justifyContent:'center' },
   timeRow:   { flexDirection:'row', justifyContent:'space-between', paddingHorizontal:4, marginTop:3 },
   timeTx:    { ...Typography.tiny },
 
