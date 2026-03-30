@@ -26,11 +26,9 @@ export const MySongsScreen: React.FC = () => {
     setLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        setLoading(false);
-        return;
-      }
-      const { data } = await db.getUserRecordings(user.id);
+      const currentUserId = user?.id || 'anonymous';
+      
+      const { data } = await db.getUserRecordings(currentUserId);
       setRecordings(data ?? []);
     } catch (e) {
       console.warn('Could not load recordings:', e);
