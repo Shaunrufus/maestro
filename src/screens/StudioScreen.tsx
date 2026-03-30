@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Animated, Easing, Pressable,
-  ScrollView, StatusBar, StyleSheet, Text, View,
+  Animated, Easing, Pressable, PanResponder,
+  ScrollView, StatusBar, StyleSheet, Text, View, Alert
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
@@ -39,6 +39,21 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const [micLevel,      setMicLevel     ] = useState(0);   // 0–1 live metering
   const [lastRecordUrl, setLastUrl      ] = useState<string | null>(null);
   const [isSaving,      setIsSaving     ] = useState(false);
+
+  // Pan Responder for Auto-Tune Slider
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light),
+      onPanResponderMove: (e, gestureState) => {
+        // approximate width 280
+        const newPct = Math.round(Math.max(0, Math.min(100, (gestureState.moveX - 40) / 280 * 100)));
+        setAutoTune(newPct);
+      },
+      onPanResponderRelease: () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+    })
+  ).current;
 
   // Sliding drawer
   const [menuOpen, setMenuOpen] = useState(false);
@@ -116,6 +131,14 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       if (cloudUrl) {
         setLastUrl(cloudUrl);
         console.log('[Studio] Saved to cloud:', cloudUrl);
+        Alert.alert(
+          'Saved to Cloud ☁️', 
+          'Awesome take! Do you want to open the DAW to add more layers?',
+          [
+            { text: 'Not Now', style: 'cancel' },
+            { text: 'Open DAW', onPress: () => navigation.navigate('Multitrack') }
+          ]
+        );
       }
     }
   };
@@ -131,7 +154,17 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         autoTunePct: autoTune, instruments: [activeInstr],
       });
       setIsSaving(false);
-      if (cloudUrl) setLastUrl(cloudUrl);
+      if (cloudUrl) {
+        setLastUrl(cloudUrl);
+        Alert.alert(
+          'Saved to Cloud ☁️', 
+          'Awesome take! Do you want to open the DAW to add more layers?',
+          [
+            { text: 'Not Now', style: 'cancel' },
+            { text: 'Open DAW', onPress: () => navigation.navigate('Multitrack') }
+          ]
+        );
+      }
     } else {
       await stopPlayback();
       setIsPlaying(false);
@@ -141,7 +174,10 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   // ── Playback ─────────────────────────────────────────────────────────────
   const handlePlay = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (!lastRecordUrl) return;
+    if (!lastRecordUrl) {
+      Alert.alert('Empty', "No recording yet. Tap ⏺ to start.");
+      return;
+    }
     if (isPlaying) {
       await stopPlayback();
       setIsPlaying(false);
@@ -155,12 +191,16 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   // ── Instrument tap ────────────────────────────────────────────────────────
   const handleInstr = (key: InstrKey, isPro: boolean) => {
     Haptics.selectionAsync();
+    // Always play the preview sound to let them hear it!
+    playInstrumentNote(key); 
+    setActiveInstr(key);
+
     if (isPro) {
-      navigation.navigate('Paywall', { instrument: key });
+      setTimeout(() => {
+        navigation.navigate('Paywall', { instrument: key });
+      }, 400); // Wait briefly so the sound rings out before redirect
       return;
     }
-    setActiveInstr(key);
-    playInstrumentNote(key); // plays preview sound
   };
 
   // ─── Render ──────────────────────────────────────────────────────────────
@@ -231,17 +271,26 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           <View style={s.pitchSec}>
             <Text style={s.statLbl}>REAL-TIME PITCH</Text>
             <View style={s.pitchTrack}>
-              <View style={[s.pitchFill, { width: '68%' }]} />
-              <View style={s.pitchDot} />
+              <View style={[s.pitchFill, { width: isRecording ? `${20 + (micLevel * 80)}%` : '68%' }]} />
+              <View style={[s.pitchDot, { left: isRecording ? `${20 + (micLevel * 80) - 2}%` : '65%' }]} />
             </View>
           </View>
           <View style={s.pitchSec}>
             <Text style={s.statLbl}>GAIN LEVEL</Text>
-            <Text style={s.loudVal}>-4.8 dB</Text>
+            <Text style={s.loudVal}>{isRecording ? (-40 + (micLevel * 40)).toFixed(1) : '-4.8'} dB</Text>
           </View>
           <View style={s.noteCard}>
-            <Text style={s.noteVal}>A#</Text>
-            <Text style={s.noteSub}>Perfect</Text>
+            {(() => {
+              const chords = ['C\nminor', 'D\nmajor', 'E\nminor', 'F#\nmajor', 'G\nminor', 'A#\nperfect', 'B\nflat'];
+              const chord = isRecording ? chords[Math.floor(micLevel * (chords.length - 1))] : 'A#\nPerfect';
+              const parts = chord.split('\n');
+              return (
+                <>
+                  <Text style={s.noteVal}>{parts[0]}</Text>
+                  <Text style={s.noteSub}>{parts[1]}</Text>
+                </>
+              );
+            })()}
           </View>
         </GlassCard>
 
@@ -269,9 +318,14 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
             <Text style={s.atLbl}>AI Voice Correction</Text>
             <Text style={s.atVal}>{autoTune}%</Text>
           </View>
-          <View style={s.sliderTrack}>
-            <View style={[s.sliderFill, { width: `${autoTune}%` }]} />
-            <View style={[s.sliderThumb, { left: `${autoTune}%` }]} />
+          <View 
+            style={{ paddingVertical: 20, marginTop: -15, marginBottom: -15, justifyContent: 'center' }}
+            {...panResponder.panHandlers}
+          >
+            <View style={s.sliderTrack}>
+              <View style={[s.sliderFill, { width: `${autoTune}%` }]} />
+              <View style={[s.sliderThumb, { left: `${autoTune}%` }]} />
+            </View>
           </View>
           <View style={s.atEnds}>
             <Text style={s.atEnd}>Organic</Text>

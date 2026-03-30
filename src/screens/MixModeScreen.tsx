@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator, Pressable, ScrollView,
-  StyleSheet, Text, View,
+  StyleSheet, Text, View, Share
 } from 'react-native';
 import { Colors, Radius, Spacing } from '../theme';
 
@@ -10,14 +10,23 @@ const BACKEND = 'https://maestro-production-c525.up.railway.app';
 type Preset   = 'clean_pop' | 'lofi' | 'worship' | 'bollywood' | 'hip_hop' | 'classical';
 type ExportFmt = 'wav_hq' | 'mp3_social' | 'stems';
 
-const PRESETS: { key: Preset; label: string; desc: string }[] = [
-  { key:'clean_pop',  label:'Clean Pop',   desc:'Bright EQ, light compression, wide stereo' },
-  { key:'lofi',       label:'Lo-Fi',       desc:'Warm low-pass, tape saturation, vinyl noise' },
-  { key:'worship',    label:'Worship',     desc:'Open reverb, soft compression, airy highs' },
-  { key:'bollywood',  label:'Bollywood',   desc:'Punchy mid boost, reverb, bright presence' },
-  { key:'hip_hop',    label:'Hip-Hop',     desc:'Heavy sub, punchy drums, compressed vocals' },
-  { key:'classical',  label:'Classical',   desc:'Natural room, minimal processing, wide dynamics' },
+const PRESETS: { key: Preset; label: string; desc: string; estTime: string }[] = [
+  { key:'clean_pop',  label:'Clean Pop',   desc:'Bright EQ, light compression, wide stereo', estTime: '~4s' },
+  { key:'lofi',       label:'Lo-Fi',       desc:'Warm low-pass, tape saturation, vinyl noise', estTime: '~6s' },
+  { key:'worship',    label:'Worship',     desc:'Open reverb, soft compression, airy highs', estTime: '~5s' },
+  { key:'bollywood',  label:'Bollywood',   desc:'Punchy mid boost, reverb, bright presence', estTime: '~4s' },
+  { key:'hip_hop',    label:'Hip-Hop',     desc:'Heavy sub, punchy drums, compressed vocals', estTime: '~5s' },
+  { key:'classical',  label:'Classical',   desc:'Natural room, minimal processing, wide dynamics', estTime: '~3s' },
 ];
+
+const PRESET_EQ_CURVES: Record<Preset, number[]> = {
+  clean_pop: [10,12,14, 15,14,13, 12,12,14, 16,18,20, 22,20,18, 16,18,22, 24,26,24, 22,20,18],
+  lofi:      [22,24,20, 18,18,16, 14,14,12, 10,8,6,   4,3,2,    1,1,1,    1,1,1,    1,1,1],
+  worship:   [12,12,12, 14,14,14, 12,12,12, 14,16,18, 20,22,24, 26,28,30, 28,26,24, 22,20,18],
+  bollywood: [14,16,14, 12,12,14, 16,18,22, 26,28,26, 22,18,16, 14,16,18, 20,18,16, 14,12,10],
+  hip_hop:   [28,30,28, 24,20,16, 14,12,12, 12,14,16, 14,12,12, 14,16,18, 20,22,20, 18,16,14],
+  classical: [14,14,14, 14,14,14, 14,14,14, 14,14,14, 14,14,14, 14,14,14, 14,14,14, 14,14,14],
+};
 
 const EXPORT_FORMATS: { key: ExportFmt; label: string; desc: string }[] = [
   { key:'wav_hq',    label:'WAV 44.1kHz',  desc:'Highest quality for archiving' },
@@ -62,6 +71,19 @@ export const MixModeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
     }
   };
 
+  const shareMix = async () => {
+    if (!exportUrl) return;
+    try {
+      await Share.share({
+        message: `Listen to my mix on MAESTRO: ${exportUrl}`,
+        url: exportUrl,
+        title: 'MAESTRO Mix'
+      });
+    } catch(e) {
+      console.error(e);
+    }
+  };
+
   return (
     <View style={s.root}>
       <View style={s.glowGold}   />
@@ -78,16 +100,13 @@ export const MixModeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
 
       <ScrollView contentContainerStyle={{ padding:Spacing.lg, gap:Spacing.lg }}>
 
-        {/* EQ visual placeholder */}
+        {/* EQ Curve Visualization */}
         <View style={s.eqCard}>
-          <Text style={s.sectionTitle}>EQ Curve</Text>
+          <Text style={s.sectionTitle}>EQ Curve ({PRESETS.find(p => p.key === preset)?.label})</Text>
           <View style={s.eqGraph}>
-            {[...Array(24)].map((_, i) => {
-              const h = 10 + Math.sin(i / 4) * 20 + Math.random() * 12;
-              return (
-                <View key={i} style={[s.eqBar, { height: h }]} />
-              );
-            })}
+            {PRESET_EQ_CURVES[preset]?.map((h, i) => (
+              <View key={i} style={[s.eqBar, { height: Math.max(2, h * 1.5) }]} />
+            ))}
           </View>
           <View style={s.eqLabels}>
             {['20Hz', '200Hz', '1kHz', '5kHz', '20kHz'].map(f => (
@@ -107,9 +126,14 @@ export const MixModeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
                   style={[s.presetCard, preset === p.key && s.presetCardActive]}
                   onPress={() => setPreset(p.key)}
                 >
-                  <Text style={[s.presetLabel, preset === p.key && { color:Colors.gold }]}>
-                    {p.label}
-                  </Text>
+                  <View style={s.presetHeader}>
+                    <Text style={[s.presetLabel, preset === p.key && { color:Colors.gold }]}>
+                      {p.label}
+                    </Text>
+                    <View style={s.estBadge}>
+                       <Text style={s.estTimeTx}>{p.estTime}</Text>
+                    </View>
+                  </View>
                   <Text style={s.presetDesc}>{p.desc}</Text>
                 </Pressable>
               ))}
@@ -160,7 +184,9 @@ export const MixModeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
           <View style={s.successCard}>
             <Text style={s.successTitle}>Mix complete! ✦</Text>
             <Text style={s.successUrl}>{exportUrl}</Text>
-            <Text style={s.successSub}>File saved to Supabase Storage. Download from My Songs.</Text>
+            <Pressable style={s.shareBtn} onPress={shareMix}>
+              <Text style={s.shareBtnTx}>Share Mix</Text>
+            </Pressable>
           </View>
         )}
 
@@ -169,7 +195,7 @@ export const MixModeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
       {/* Mix CTA */}
       <View style={s.bottomBar}>
         <Pressable
-          style={[s.mixBtn, loading && { opacity:0.6 }]}
+          style={[s.mixBtn, loading && { opacity: 0.6 }]}
           onPress={runMix}
           disabled={loading}
         >
@@ -197,10 +223,13 @@ const s = StyleSheet.create({
   eqBar:          { flex:1, backgroundColor:Colors.teal, borderRadius:2, opacity:0.7 },
   eqLabels:       { flexDirection:'row', justifyContent:'space-between' },
   eqLabel:        { fontSize:8, color:Colors.textMuted },
-  presetCard:     { width:130, backgroundColor:Colors.bgCard, borderRadius:Radius.md, borderWidth:1, borderColor:Colors.border, padding:Spacing.md },
+  presetCard:     { width:140, backgroundColor:Colors.bgCard, borderRadius:Radius.md, borderWidth:1, borderColor:Colors.border, padding:Spacing.md },
   presetCardActive:{ backgroundColor:Colors.goldBg, borderColor:Colors.gold },
-  presetLabel:    { fontSize:13, fontWeight:'600', color:Colors.textPrimary, marginBottom:4 },
-  presetDesc:     { fontSize:10, color:Colors.textMuted, lineHeight:16 },
+  presetHeader:   { flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start', marginBottom:6 },
+  presetLabel:    { fontSize:13, fontWeight:'600', color:Colors.textPrimary, flex:1 },
+  estBadge:       { backgroundColor: 'rgba(255,255,255,0.1)', paddingHorizontal:4, paddingVertical:2, borderRadius:4 },
+  estTimeTx:      { fontSize:8, color:Colors.textMuted, fontWeight:'700' },
+  presetDesc:     { fontSize:10, color:Colors.textMuted, lineHeight:15 },
   loudnessRow:    { flexDirection:'row', gap:8, flexWrap:'wrap' },
   loudBtn:        { flex:1, minWidth:70, backgroundColor:Colors.bgCard, borderWidth:1, borderColor:Colors.border, borderRadius:Radius.md, padding:Spacing.md, alignItems:'center' },
   loudBtnActive:  { backgroundColor:Colors.tealBg, borderColor:Colors.teal },
@@ -213,8 +242,9 @@ const s = StyleSheet.create({
   fmtDesc:        { fontSize:11, color:Colors.textMuted },
   successCard:    { backgroundColor:'rgba(0,217,192,0.1)', borderWidth:1, borderColor:Colors.teal, borderRadius:Radius.md, padding:Spacing.md },
   successTitle:   { fontSize:16, fontWeight:'700', color:Colors.teal, marginBottom:6 },
-  successUrl:     { fontSize:11, color:Colors.textMuted, marginBottom:4 },
-  successSub:     { fontSize:12, color:Colors.textSecondary },
+  successUrl:     { fontSize:11, color:Colors.textMuted, marginBottom:12 },
+  shareBtn:       { backgroundColor:Colors.teal, paddingVertical:10, borderRadius:Radius.md, alignItems:'center' },
+  shareBtnTx:     { fontSize:13, fontWeight:'700', color:Colors.bg },
   bottomBar:      { padding:16, backgroundColor:Colors.bgSurf, borderTopWidth:1, borderTopColor:Colors.border },
   mixBtn:         { backgroundColor:Colors.gold, borderRadius:Radius.pill, paddingVertical:16, alignItems:'center', shadowColor:Colors.gold, shadowOffset:{width:0,height:0}, shadowOpacity:0.7, shadowRadius:14, elevation:8 },
   mixBtnTx:       { fontSize:16, fontWeight:'800', color:Colors.bg },

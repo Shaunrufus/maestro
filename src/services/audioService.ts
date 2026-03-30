@@ -54,8 +54,8 @@ export const startRecording = async (
       },
       (status) => {
         if (status.metering !== undefined && onMeteringLevel) {
-          // Convert dB (-160 to 0) → 0–1 linear scale
-          const level = Math.max(0, Math.min(1, (status.metering + 160) / 160));
+          // Convert realistic vocal dB range (-50 to 0) to 0–1 linear scale
+          const level = Math.max(0, Math.min(1, (status.metering + 50) / 50));
           onMeteringLevel(level);
         }
       },
@@ -74,7 +74,7 @@ export const startRecording = async (
 // ─── Upload file to Supabase Storage via REST API ─────────────────────────
 // Uses expo-file-system to read base64, then uploads via Supabase REST.
 // This is the ONLY reliable upload path in React Native / Expo Go.
-async function uploadToSupabase(
+export async function uploadToSupabase(
   localUri: string,
   storagePath: string
 ): Promise<string | null> {

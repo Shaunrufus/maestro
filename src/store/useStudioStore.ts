@@ -12,6 +12,8 @@ export interface Take {
   durationMs:  number;
   createdAt:   Date;
   pitchScore?: number;   // 0-100 from Guru analysis
+  timingScore?: number;
+  energyScore?: number;
   tuned:       boolean;
 }
 
@@ -70,6 +72,7 @@ export interface StudioState {
   setUser:        (id: string, email: string, isPro: boolean) => void;
   clearUser:      () => void;
   addTake:        (trackId: string, take: Take) => void;
+  setTakes:       (trackId: string, takes: Take[]) => void;
   selectTake:     (trackId: string, takeId: string) => void;
   addTrack:       (track: Track) => void;
   updateTrackVolume: (trackId: string, vol: number) => void;
@@ -126,6 +129,16 @@ export const useStudioStore = create<StudioState>((set) => ({
         ...s.currentProject,
         tracks: s.currentProject.tracks.map(t =>
           t.id === trackId ? { ...t, takes: [...t.takes, take] } : t
+        ),
+      } : null,
+    })),
+
+  setTakes: (trackId, takes) =>
+    set((s) => ({
+      currentProject: s.currentProject ? {
+        ...s.currentProject,
+        tracks: s.currentProject.tracks.map(t =>
+          t.id === trackId ? { ...t, takes } : t
         ),
       } : null,
     })),

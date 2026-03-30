@@ -90,6 +90,14 @@ export const MySongsScreen: React.FC = () => {
         text: 'Delete', style: 'destructive',
         onPress: async () => {
           try {
+            if (rec.file_url) {
+              const parts = rec.file_url.split('/recordings/');
+              if (parts.length > 1) {
+                const storagePath = parts[1];
+                await supabase.storage.from('recordings').remove([storagePath]);
+                console.log('[MySongs] Deleted from storage:', storagePath);
+              }
+            }
             await supabase.from('recordings').delete().eq('id', rec.id);
             setRecordings(prev => prev.filter(r => r.id !== rec.id));
           } catch (e) {

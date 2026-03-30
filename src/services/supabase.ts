@@ -71,4 +71,65 @@ export const db = {
       .single();
     return { data, error };
   },
+
+  // ─── DAW Multitrack DB Helpers ─────────────────────────────────────────
+
+  createProject: async (params: { userId: string, name: string, bpm: number, key: string }) => {
+    const { data, error } = await supabase
+      .from('projects')
+      .insert([{
+        user_id: params.userId,
+        name:    params.name,
+        bpm:     params.bpm,
+        key:     params.key,
+      }])
+      .select()
+      .single();
+    return { data, error };
+  },
+
+  getProjects: async (userId: string) => {
+    const { data, error } = await supabase
+      .from('projects')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+    return { data, error };
+  },
+
+  saveTake: async (params: {
+    projectId:    string;
+    trackId:      string;
+    userId:       string;
+    fileUrl:      string;
+    durationMs:   number;
+    pitchScore?:  number;
+    timingScore?: number;
+    energyScore?: number;
+  }) => {
+    const { data, error } = await supabase
+      .from('takes')
+      .insert([{
+        project_id:   params.projectId,
+        track_id:     params.trackId,
+        user_id:      params.userId,
+        file_url:     params.fileUrl,
+        duration_ms:  params.durationMs,
+        pitch_score:  params.pitchScore,
+        timing_score: params.timingScore,
+        energy_score: params.energyScore,
+      }])
+      .select()
+      .single();
+    return { data, error };
+  },
+
+  getTakes: async (projectId: string) => {
+    const { data, error } = await supabase
+      .from('takes')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: true });
+    return { data, error };
+  },
 };
