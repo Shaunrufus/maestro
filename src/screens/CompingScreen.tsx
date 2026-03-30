@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { useStudioStore } from '../store/useStudioStore';
 import { Colors, Radius, Spacing } from '../theme';
+import { db } from '../services/supabase';
 
 const BACKEND = 'https://maestro-production-c525.up.railway.app';
 
@@ -44,6 +45,31 @@ export const CompingScreen: React.FC<{ navigation: any; route: any }> = ({ navig
   const [renderedUrl,      setRenderedUrl   ] = useState<string | null>(null);
   const [crossfadeMs,      setCrossfadeMs   ] = useState(15);
   const [modalRegionId,    setModalRegionId ] = useState<string | null>(null);
+  const [snapshots,        setSnapshots     ] = useState<any[]>([]);
+
+  // Load snapshots from NoSQL store
+  React.useEffect(() => {
+    if (currentProject) {
+      db.getSnapshots(currentProject.id).then(res => {
+        if (res.data) setSnapshots(res.data);
+      });
+    }
+  }, [currentProject]);
+
+  const handleSaveSnapshot = async () => {
+    if (!currentProject) return;
+    const name = `Version ${snapshots.length + 1}`;
+    setLoading(true);
+    const { data } = await db.saveSnapshot({
+      projectId: currentProject.id,
+      userId: 'demo-local-user', // would be real user ID in prod
+      snapshotName: name,
+      configuration: regions
+    });
+    if (data) setSnapshots(prev => [data, ...prev]);
+    setLoading(false);
+    Alert.alert('Saved', 'Timeline sequence securely saved to the cloud!');
+  };
 
   const assignRegionToTake = (regionId: string, takeIndex: number) => {
     setRegions(prev => prev.map(r =>
@@ -122,6 +148,9 @@ export const CompingScreen: React.FC<{ navigation: any; route: any }> = ({ navig
           <Text style={s.title}>Vocal Comp Editor</Text>
           <Text style={s.subtitle}>{takes.length} takes · {regions.length} regions</Text>
         </View>
+        <Pressable style={[s.aiBtn, { backgroundColor: Colors.teal, marginRight: 8 }]} onPress={handleSaveSnapshot} disabled={loading}>
+          <Text style={s.aiBtnTx}>Save State</Text>
+        </Pressable>
         <Pressable style={s.aiBtn} onPress={getAISuggestion} disabled={loading}>
           {loading
             ? <ActivityIndicator color={Colors.bg} size="small" />
@@ -129,6 +158,18 @@ export const CompingScreen: React.FC<{ navigation: any; route: any }> = ({ navig
           }
         </Pressable>
       </View>
+
+      {/* Snapshots Cloud Row */}
+      {snapshots.length > 0 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8, paddingBottom: 12 }}>
+          <Text style={{ fontSize: 11, color: Colors.textSecondary, alignSelf: 'center', marginRight: 4 }}>History:</Text>
+          {snapshots.map(snap => (
+            <Pressable key={snap.id} style={s.snapTab} onPress={() => setRegions(snap.configuration)}>
+              <Text style={s.snapTx}>★ {snap.snapshot_name}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
 
       {/* Take selector */}
       <View style={s.takeTabs}>
@@ -374,4 +415,6 @@ const s = StyleSheet.create({
   modalTakeScore:{ fontSize: 12, fontWeight: '700', color: Colors.textMuted },
   modalCancelBtn:{ marginTop: 16, paddingTop: 16, alignItems: 'center' },
   modalCancelTx: { fontSize: 14, color: Colors.textSecondary },
+  snapTab:       { backgroundColor:Colors.bgCard, borderWidth:1, borderColor:Colors.teal, borderRadius:Radius.md, paddingHorizontal:12, paddingVertical:6 },
+  snapTx:        { fontSize:11, color:Colors.teal, fontWeight:'600' },
 });

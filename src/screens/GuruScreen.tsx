@@ -10,9 +10,10 @@ import {
   TextInput, View, ActivityIndicator,
 } from 'react-native';
 import { Colors, Radius, Spacing } from '../theme';
+import { db } from '../services/supabase';
 
 type MessageRole = 'guru' | 'user';
-interface Message { role: MessageRole; text: string; timestamp: Date; }
+interface Message { role: MessageRole; text: string; timestamp: Date | string; }
 
 const QUICK_ACTIONS = [
   { label: 'Analyze my voice',     prompt: 'Analyze my last recording and give me vocal feedback.' },
@@ -45,6 +46,18 @@ export const GuruScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
     ])).start();
   }, []);
 
+  // Load history on mount
+  useEffect(() => {
+    const loadHistory = async () => {
+      // In a real app, use the actual userId / projectId
+      const { data } = await db.getGuruChats('demo-local-user', 'default-session');
+      if (data && data.length > 0) {
+        setMessages(data.map(d => d.message as Message));
+      }
+    };
+    loadHistory();
+  }, []);
+
   // Auto-analyze if launched with a recording URI
   useEffect(() => {
     if (route.params?.autoAnalyze && route.params?.recordingUri) {
@@ -54,8 +67,9 @@ export const GuruScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
 
   const sendToGuru = async (text: string, recordingUri?: string) => {
     if (!text.trim() && !recordingUri) return;
-    const userMsg: Message = { role:'user', text: text.trim(), timestamp: new Date() };
+    const userMsg: Message = { role:'user', text: text.trim(), timestamp: new Date().toISOString() };
     setMessages(prev => [...prev, userMsg]);
+    db.saveGuruChat({ userId: 'demo-local-user', sessionId: 'default-session', message: userMsg });
     setInput('');
     setLoading(true);
 
@@ -67,8 +81,9 @@ export const GuruScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
         form.append('note', text);
         const res = await fetch(`${GURU_BACKEND}/guru/analyze`, { method: 'POST', body: form });
         const data = await res.json();
-        const guruMsg: Message = { role:'guru', text: data.feedback || data.reply || 'Analysis complete!', timestamp: new Date() };
+        const guruMsg: Message = { role:'guru', text: data.feedback || data.reply || 'Analysis complete!', timestamp: new Date().toISOString() };
         setMessages(prev => [...prev, guruMsg]);
+        db.saveGuruChat({ userId: 'demo-local-user', sessionId: 'default-session', message: guruMsg });
       } else {
         // Real backend call for chat
         const res = await fetch(`${GURU_BACKEND}/guru/chat`, {
@@ -77,8 +92,9 @@ export const GuruScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
           body: JSON.stringify({ message: text.trim() }),
         });
         const data = await res.json();
-        const guruMsg: Message = { role:'guru', text: data.reply || 'I heard you!', timestamp: new Date() };
+        const guruMsg: Message = { role:'guru', text: data.reply || 'I heard you!', timestamp: new Date().toISOString() };
         setMessages(prev => [...prev, guruMsg]);
+        db.saveGuruChat({ userId: 'demo-local-user', sessionId: 'default-session', message: guruMsg });
       }
     } catch (e: any) {
       const errMsg: Message = { role:'guru', text: 'Hmm, I lost connection to the studio server. Try again in a moment!', timestamp: new Date() };

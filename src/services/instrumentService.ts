@@ -70,6 +70,30 @@ export const playInstrumentNote = async (key: InstrKey): Promise<void> => {
   }
 };
 
+// Play multiple instruments simultaneously at a specific pitch rate (1.0 = C, 1.33 = F, etc.)
+export const playInstrumentChord = async (keys: InstrKey[], rate: number = 1.0): Promise<void> => {
+  keys.forEach(async (key) => {
+    const source = SOUND_MAP[key];
+    if (!source) return;
+    try {
+      // Omit setAudioModeAsync so we don't accidentally kill the active microphone session
+      const { sound } = await Audio.Sound.createAsync(source, { 
+        shouldPlay: true, 
+        volume: 0.7, 
+        rate: rate,
+        shouldCorrectPitch: false // Allows the pitch to bend naturally with the rate
+      });
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.isLoaded && status.didJustFinish) {
+          sound.unloadAsync();
+        }
+      });
+    } catch (e) {
+      console.warn(`[Instrument] Chord playback failed for ${key}`);
+    }
+  });
+};
+
 // Pre-load all sounds at app start (optional — dramatically reduces tap latency)
 export const preloadInstrumentSounds = async (): Promise<void> => {
   for (const [key, source] of Object.entries(SOUND_MAP)) {

@@ -91,3 +91,34 @@ DROP POLICY IF EXISTS "Allow anonymous inserts" ON public.takes;
 CREATE POLICY "Allow anonymous inserts" ON public.takes FOR INSERT WITH CHECK (true);
 DROP POLICY IF EXISTS "Allow anonymous selects" ON public.takes;
 CREATE POLICY "Allow anonymous selects" ON public.takes FOR SELECT USING (true);
+
+-- 9. Create GURU_CHATS table (for AI semantic memory)
+CREATE TABLE IF NOT EXISTS public.guru_chats (
+  id uuid default gen_random_uuid() primary key,
+  user_id text,
+  session_id text,
+  message JSONB,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+ALTER TABLE public.guru_chats ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow anonymous inserts" ON public.guru_chats;
+CREATE POLICY "Allow anonymous inserts" ON public.guru_chats FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow anonymous selects" ON public.guru_chats;
+CREATE POLICY "Allow anonymous selects" ON public.guru_chats FOR SELECT USING (true);
+
+-- 10. Create COMP_SNAPSHOTS table (for Timeline Undos)
+CREATE TABLE IF NOT EXISTS public.comp_snapshots (
+  id uuid default gen_random_uuid() primary key,
+  project_id uuid references public.projects(id) on delete cascade,
+  user_id text,
+  snapshot_name text,
+  configuration JSONB,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+ALTER TABLE public.comp_snapshots ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow anonymous inserts" ON public.comp_snapshots;
+CREATE POLICY "Allow anonymous inserts" ON public.comp_snapshots FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow anonymous selects" ON public.comp_snapshots;
+CREATE POLICY "Allow anonymous selects" ON public.comp_snapshots FOR SELECT USING (true);

@@ -132,4 +132,48 @@ export const db = {
       .order('created_at', { ascending: true });
     return { data, error };
   },
+
+  // ─── GURU CHATS (NoSQL) ────────────────────────────────────────────────
+  saveGuruChat: async (params: { userId: string, sessionId: string, message: any }) => {
+    const { data, error } = await supabase
+      .from('guru_chats')
+      .insert([{
+        user_id:    params.userId,
+        session_id: params.sessionId,
+        message:    params.message,
+      }]);
+    return { data, error };
+  },
+
+  getGuruChats: async (userId: string, sessionId: string) => {
+    const { data, error } = await supabase
+      .from('guru_chats')
+      .select('message')
+      .eq('user_id', userId)
+      .eq('session_id', sessionId)
+      .order('created_at', { ascending: true });
+    return { data, error };
+  },
+
+  // ─── COMP SNAPSHOTS (NoSQL) ────────────────────────────────────────────
+  saveSnapshot: async (params: { projectId: string, userId: string, snapshotName: string, configuration: any }) => {
+    const { data, error } = await supabase
+      .from('comp_snapshots')
+      .insert([{
+        project_id:    params.projectId,
+        user_id:       params.userId,
+        snapshot_name: params.snapshotName,
+        configuration: params.configuration,
+      }]);
+    return { data, error };
+  },
+
+  getSnapshots: async (projectId: string) => {
+    const { data, error } = await supabase
+      .from('comp_snapshots')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: false });
+    return { data, error };
+  },
 };

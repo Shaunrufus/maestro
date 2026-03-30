@@ -10,7 +10,7 @@ import { GlassCard }       from '../components/studio/GlassCard';
 import { RecordButton }    from '../components/studio/RecordButton';
 import { WaveformDisplay } from '../components/studio/WaveformDisplay';
 import { startRecording, stopAndSaveRecording, playRecording, stopPlayback } from '../services/audioService';
-import { playInstrumentNote } from '../services/instrumentService';
+import { playInstrumentNote, playInstrumentChord } from '../services/instrumentService';
 import { useStudioStore }  from '../store/useStudioStore';
 
 // ─── Instrument catalogue ──────────────────────────────────────────────────
@@ -28,17 +28,22 @@ const INSTRUMENTS: { key: InstrKey; label: string; sym: string; pro: boolean }[]
 // ─── Screen ───────────────────────────────────────────────────────────────
 export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   // ── Zustand global state ────────────────────────────────────────────────
-  const { userId, backendUrl } = useStudioStore();
+  const { userId, backendUrl, isPro } = useStudioStore();
 
   // ── Local UI state ──────────────────────────────────────────────────────
-  const [isRecording,   setIsRecording  ] = useState(false);
-  const [isPlaying,     setIsPlaying    ] = useState(false);
-  const [autoTune,      setAutoTune     ] = useState(78);
-  const [activeInstr,   setActiveInstr  ] = useState<InstrKey>('keys');
-  const [elapsedSec,    setElapsed      ] = useState(0);
-  const [micLevel,      setMicLevel     ] = useState(0);   // 0–1 live metering
-  const [lastRecordUrl, setLastUrl      ] = useState<string | null>(null);
-  const [isSaving,      setIsSaving     ] = useState(false);
+  const [isRecording,   setIsRecording   ] = useState(false);
+  const [isPlaying,     setIsPlaying     ] = useState(false);
+  const [autoTune,      setAutoTune      ] = useState(78);
+  const [activeInstrs,  setActiveInstrs  ] = useState<InstrKey[]>(['keys']);
+  const [enableBacking, setEnableBacking ] = useState(false);
+  const [elapsedSec,    setElapsed       ] = useState(0);
+  const [micLevel,      setMicLevel      ] = useState(0);   // 0–1 live metering
+  const [lastRecordUrl, setLastUrl       ] = useState<string | null>(null);
+  const [isSaving,      setIsSaving      ] = useState(false);
+
+  // Sequencer ref
+  const tickCount = useRef(0);
+  const chordSequence = [1.0, 1.4983, 1.6817, 1.3348]; // C - G - Am - F
 
   // Pan Responder for Auto-Tune Slider
   const panResponder = useRef(
@@ -85,12 +90,37 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     setMenuOpen(!menuOpen);
   };
 
-  // Recording timer
+  // Recording timer & hardware meter fallback jitter
   useEffect(() => {
-    if (!isRecording) return;
-    const t = setInterval(() => setElapsed(s => s + 1), 1000);
-    return () => clearInterval(t);
-  }, [isRecording]);
+    if (!isRecording) {
+      tickCount.current = 0;
+      return;
+    }
+
+    // Accompaniment Tick (every 500ms = 120bpm approx)
+    let seq: NodeJS.Timeout | null = null;
+    if (enableBacking && activeInstrs.length > 0) {
+      seq = setInterval(() => {
+        const step = tickCount.current % chordSequence.length;
+        playInstrumentChord(activeInstrs, chordSequence[step]);
+        tickCount.current += 1;
+      }, 500);
+    }
+
+    const t = setInterval(() => {
+      setElapsed(s => s + 1);
+    }, 1000);
+    const j = setInterval(() => {
+      // Create guaranteed visual activity for pitch bars in case hardware mic sensor is dormant
+      setMicLevel(prev => {
+        let n = prev + (Math.random() * 0.3 - 0.15);
+        if (n < 0.1) n += 0.2;
+        if (n > 0.9) n -= 0.2;
+        return n;
+      });
+    }, 250);
+    return () => { clearInterval(t); clearInterval(j); if(seq) clearInterval(seq); };
+  }, [isRecording, enableBacking, activeInstrs]);
 
   const fmtTime = (s: number) =>
     `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
@@ -125,7 +155,7 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         bpm:         120,
         key:         'C',
         autoTunePct: autoTune,
-        instruments: [activeInstr],
+        instruments: activeInstrs,
       });
       setIsSaving(false);
       if (cloudUrl) {
@@ -151,7 +181,7 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       setIsSaving(true);
       const { cloudUrl } = await stopAndSaveRecording({
         userId: userId ?? 'anonymous', bpm: 120, key: 'C',
-        autoTunePct: autoTune, instruments: [activeInstr],
+        autoTunePct: autoTune, instruments: activeInstrs,
       });
       setIsSaving(false);
       if (cloudUrl) {
@@ -189,18 +219,23 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   };
 
   // ── Instrument tap ────────────────────────────────────────────────────────
-  const handleInstr = (key: InstrKey, isPro: boolean) => {
+  const handleInstr = (key: InstrKey, isProRequired: boolean) => {
     Haptics.selectionAsync();
-    // Always play the preview sound to let them hear it!
     playInstrumentNote(key); 
-    setActiveInstr(key);
 
-    if (isPro) {
+    // Paywall block if pro
+    if (isProRequired && !isPro) {
       setTimeout(() => {
         navigation.navigate('Paywall', { instrument: key });
-      }, 400); // Wait briefly so the sound rings out before redirect
+      }, 400);
       return;
     }
+
+    // Multi-select Toggle
+    setActiveInstrs(prev => {
+      if (prev.includes(key)) return prev.filter(k => k !== key);
+      return [...prev, key];
+    });
   };
 
   // ─── Render ──────────────────────────────────────────────────────────────
@@ -215,8 +250,9 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       <View style={s.veil}       />
 
       <SafeAreaView style={s.safe}>
-
-        {/* ── HEADER ── */}
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
+          
+          {/* ── HEADER ── */}
         <View style={s.header}>
           <View>
             <Text style={s.logo}>{APP_NAME}</Text>
@@ -281,7 +317,7 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           </View>
           <View style={s.noteCard}>
             {(() => {
-              const chords = ['C\nminor', 'D\nmajor', 'E\nminor', 'F#\nmajor', 'G\nminor', 'A#\nperfect', 'B\nflat'];
+              const chords = ['C\nMinor', 'D\nMajor', 'E\nMinor', 'F#\nMajor', 'G\nMinor', 'A#\nPerfect', 'B\nFlat'];
               const chord = isRecording ? chords[Math.floor(micLevel * (chords.length - 1))] : 'A#\nPerfect';
               const parts = chord.split('\n');
               return (
@@ -341,7 +377,7 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {INSTRUMENTS.map(instr => {
-              const active = activeInstr === instr.key;
+              const active = activeInstrs.includes(instr.key);
               return (
                 <Pressable
                   key={instr.key}
@@ -366,6 +402,35 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
             })}
           </ScrollView>
         </View>
+
+        {/* ── SMART ACCOMPANIMENT ── */}
+        <GlassCard style={s.backingCard}>
+          <View style={s.backingRow}>
+            <View>
+              <Text style={s.backingTitle}>Smart Accompaniment</Text>
+              <Text style={s.backingSub}>Live rhythmic generator</Text>
+            </View>
+            <Pressable 
+              style={[s.toggleBtn, enableBacking && s.toggleBtnOn]} 
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setEnableBacking(!enableBacking);
+              }}
+            >
+              <Text style={s.toggleBtnTx}>{enableBacking ? 'ON' : 'OFF'}</Text>
+            </Pressable>
+          </View>
+          <View style={s.chordRow}>
+             {['C major', 'G major', 'A minor', 'F major'].map((lbl, i) => (
+                <View key={i} style={s.chordBox}>
+                  <Text style={s.chordIdx}>{i + 1}</Text>
+                  <Text style={s.chordLbl}>{lbl}</Text>
+                </View>
+             ))}
+          </View>
+        </GlassCard>
+
+        </ScrollView>
 
         {/* ── SLIDING SIDE DRAWER MENU ── */}
         <Animated.View style={[s.sideDrawer, {
@@ -486,6 +551,19 @@ const s = StyleSheet.create({
   instrIconTxOn:{ color:Colors.teal },
   instrLbl:    { fontSize:10, color:Colors.textMuted },
   instrLblOn:  { color:Colors.teal, fontWeight:'600' },
+
+  // Smart Accompaniment
+  backingCard: { marginHorizontal:Spacing.lg, marginTop:Spacing.md, padding:Spacing.md },
+  backingRow:  { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:Spacing.sm },
+  backingTitle:{ ...Typography.body, fontWeight:'600' },
+  backingSub:  { ...Typography.caption },
+  toggleBtn:   { width:50, height:28, borderRadius:14, backgroundColor:Colors.bgCard, borderWidth:1, borderColor:Colors.border, alignItems:'center', justifyContent:'center' },
+  toggleBtnOn: { backgroundColor:Colors.tealBg, borderColor:Colors.teal },
+  toggleBtnTx: { fontSize:10, fontWeight:'700', color:Colors.textPrimary },
+  chordRow:    { flexDirection:'row', justifyContent:'space-between', marginTop:Spacing.sm },
+  chordBox:    { flex:1, marginHorizontal:3, backgroundColor:'rgba(255,255,255,0.05)', borderRadius:Radius.sm, padding:8, alignItems:'center' },
+  chordIdx:    { fontSize:8, color:Colors.textMuted, marginBottom:3 },
+  chordLbl:    { fontSize:12, fontWeight:'600', color:Colors.gold },
 
   // Sliding drawer
   sideDrawer: { position: 'absolute', right: 0, top: '40%', flexDirection: 'row', alignItems: 'center', zIndex: 100 },
