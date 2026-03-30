@@ -47,6 +47,7 @@ export const MixModeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
         method:  'POST',
         headers: { 'Content-Type':'application/json' },
         body: JSON.stringify({
+          project_id:    `mix_${Date.now()}`,
           preset,
           loudness_lufs: loudnessTarget,
           format:        exportFmt,

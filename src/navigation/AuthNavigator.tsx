@@ -1,12 +1,13 @@
 // src/navigation/AuthNavigator.tsx
 // Stack navigator shown when user is NOT logged in.
+// Uses native-stack (same as AppNavigator) — no extra package needed.
 
 import React from 'react';
-import { createStackNavigator } from '@react-navigation/stack';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { OnboardingScreen } from '../screens/OnboardingScreen';
 import { LoginScreen }      from '../screens/LoginScreen';
 
-const Stack = createStackNavigator();
+const Stack = createNativeStackNavigator();
 
 export const AuthNavigator = () => (
   <Stack.Navigator screenOptions={{ headerShown: false }}>
