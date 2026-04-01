@@ -72,24 +72,34 @@ export const playInstrumentNote = async (key: InstrKey): Promise<void> => {
 
 // Play multiple instruments simultaneously at a specific pitch rate (1.0 = C, 1.33 = F, etc.)
 export const playInstrumentChord = async (keys: InstrKey[], rate: number = 1.0): Promise<void> => {
+  // Clamp rate to valid range (0.5 to 2.0)
+  const clampedRate = Math.max(0.5, Math.min(2.0, rate));
+
   keys.forEach(async (key) => {
     const source = SOUND_MAP[key];
-    if (!source) return;
+    if (!source) {
+      console.info(`[Instrument] No sound source for ${key}`);
+      return;
+    }
+
     try {
+      console.info(`[Instrument] Playing ${key} at rate ${clampedRate}`);
       // Omit setAudioModeAsync so we don't accidentally kill the active microphone session
-      const { sound } = await Audio.Sound.createAsync(source, { 
-        shouldPlay: true, 
-        volume: 0.7, 
-        rate: rate,
+      const { sound } = await Audio.Sound.createAsync(source, {
+        shouldPlay: true,
+        volume: 0.7,
+        rate: clampedRate,
         shouldCorrectPitch: false // Allows the pitch to bend naturally with the rate
       });
+      console.info(`[Instrument] ${key} sound loaded successfully`);
+
       sound.setOnPlaybackStatusUpdate((status) => {
         if (status.isLoaded && status.didJustFinish) {
           sound.unloadAsync();
         }
       });
     } catch (e) {
-      console.warn(`[Instrument] Chord playback failed for ${key}`);
+      console.error(`[Instrument] Chord playback failed for ${key}:`, e);
     }
   });
 };
