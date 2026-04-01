@@ -3,10 +3,12 @@
 
 FROM python:3.11-slim
 
-# System dependencies for audio processing (librosa/soundfile)
+# System dependencies for audio processing (librosa/soundfile/fluidsynth)
 RUN apt-get update && apt-get install -y \
     libsndfile1 \
     ffmpeg \
+    fluidsynth \
+    fluid-soundfont-gm \
     gcc \
     g++ \
     && rm -rf /var/lib/apt/lists/*

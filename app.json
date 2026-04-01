@@ -1,7 +1,6 @@
 {
   "expo": {
     "name": "MAESTRO",
-    "displayName": "MAESTRO",
     "slug": "maestro",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -12,7 +11,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#0B0B12"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.shaunrufus.maestro"
@@ -27,6 +28,9 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "sdkVersion": "54.0.0"
+    "sdkVersion": "54.0.0",
+    "plugins": [
+      "expo-web-browser"
+    ]
   }
 }

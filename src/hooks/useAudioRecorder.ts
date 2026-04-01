@@ -53,6 +53,7 @@ export const useAudioRecorder = () => {
           audioQuality:       Audio.IOSAudioQuality.MAX,
           sampleRate:         44100,
           numberOfChannels:   1,
+          bitRate:            128000,
           bitDepthHint:       16,
           linearPCMBitDepth:  16,
           linearPCMIsBigEndian: false,

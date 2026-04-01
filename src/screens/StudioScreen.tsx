@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated, Easing, Pressable, PanResponder,
-  ScrollView, StatusBar, StyleSheet, Text, View, Alert
+  ScrollView, StatusBar, StyleSheet, Text, View, Alert, ActivityIndicator
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
@@ -12,6 +12,7 @@ import { WaveformDisplay } from '../components/studio/WaveformDisplay';
 import { startRecording, stopAndSaveRecording, playRecording, stopPlayback } from '../services/audioService';
 import { playInstrumentNote, playInstrumentChord } from '../services/instrumentService';
 import { useStudioStore }  from '../store/useStudioStore';
+import { bandService }     from '../services/bandService';
 
 // ─── Instrument catalogue ──────────────────────────────────────────────────
 type InstrKey = 'keys' | 'guitar' | 'tabla' | 'flute' | 'sitar' | 'orchestral';
@@ -40,6 +41,8 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const [micLevel,      setMicLevel      ] = useState(0);   // 0–1 live metering
   const [lastRecordUrl, setLastUrl       ] = useState<string | null>(null);
   const [isSaving,      setIsSaving      ] = useState(false);
+  const [isAnalyzing,   setIsAnalyzing   ] = useState(false);  // Band analysis loading
+  const [hasShownHeadphoneAlert, setHasShownHeadphoneAlert] = useState(false);
 
   // Sequencer ref
   const tickCount = useRef(0);
@@ -138,35 +141,97 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const handleRecord = async () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     if (!isRecording) {
-      // START recording with live metering callback
-      setIsPlaying(false);
-      setElapsed(0);
-      setMicLevel(0);
-      const ok = await startRecording((level) => setMicLevel(level));
-      if (ok) setIsRecording(true);
-    } else {
-      // STOP + upload to Supabase
-      setIsRecording(false);
-      setMicLevel(0);
-      setIsSaving(true);
-      const { cloudUrl } = await stopAndSaveRecording({
-        userId:      userId ?? 'anonymous',
-        projectName: 'Untitled Session',
-        bpm:         120,
-        key:         'C',
-        autoTunePct: autoTune,
-        instruments: activeInstrs,
-      });
-      setIsSaving(false);
-      if (cloudUrl) {
-        setLastUrl(cloudUrl);
-        console.log('[Studio] Saved to cloud:', cloudUrl);
+      // SHOW HEADPHONE ALERT BEFORE RECORDING STARTS
+      if (!hasShownHeadphoneAlert) {
         Alert.alert(
-          'Saved to Cloud ☁️', 
-          'Awesome take! Do you want to open the DAW to add more layers?',
+          '🎧 Headphones or Bluetooth?',
+          'For best recording quality, connect headphones. Your voice will be recorded cleanly without any backing sounds bleeding in.',
           [
-            { text: 'Not Now', style: 'cancel' },
-            { text: 'Open DAW', onPress: () => navigation.navigate('Multitrack') }
+            {
+              text: 'No Headphones',
+              onPress: () => {
+                setHasShownHeadphoneAlert(true);
+                startRecordingFlow();
+              },
+            },
+            {
+              text: 'Headphones Connected ✓',
+              style: 'default',
+              onPress: () => {
+                setHasShownHeadphoneAlert(true);
+                startRecordingFlow();
+              },
+            },
+          ]
+        );
+        return;
+      }
+
+      startRecordingFlow();
+    } else {
+      // STOP + upload + analyze for band
+      await stopRecordingAndAnalyzeBand();
+    }
+  };
+
+  const startRecordingFlow = async () => {
+    setIsPlaying(false);
+    setElapsed(0);
+    setMicLevel(0);
+    const ok = await startRecording((level) => setMicLevel(level));
+    if (ok) setIsRecording(true);
+  };
+
+  const stopRecordingAndAnalyzeBand = async () => {
+    setIsRecording(false);
+    setMicLevel(0);
+    setIsSaving(true);
+    const { cloudUrl, localUri } = await stopAndSaveRecording({
+      userId:      userId ?? 'anonymous',
+      projectName: 'Untitled Session',
+      bpm:         120,
+      key:         'C',
+      autoTunePct: autoTune,
+      instruments: activeInstrs,
+    });
+    setIsSaving(false);
+
+    if (cloudUrl) {
+      setLastUrl(cloudUrl);
+      console.log('[Studio] Saved to cloud:', cloudUrl);
+
+      // START BAND ANALYSIS
+      setIsAnalyzing(true);
+      try {
+        // Convert audio blob to base64 for analysis
+        // For now, use cloudUrl for fetching
+        const resp = await fetch(cloudUrl);
+        const blob = await resp.blob();
+
+        // Call one-shot endpoint: analyze + generate arrangements
+        const bandResult = await bandService.analyzeAndGenerate(blob);
+        setIsAnalyzing(false);
+
+        console.log('[Studio] Band analysis complete:', bandResult);
+
+        // Navigate to BandResultsScreen with results
+        navigation.navigate('BandResults', {
+          arrangements: bandResult.arrangements,
+          analysis: bandResult.analysis,
+          vocalUrl: cloudUrl,
+        });
+      } catch (err) {
+        setIsAnalyzing(false);
+        console.error('[Studio] Band analysis failed:', err);
+        Alert.alert(
+          'Band Analysis Error',
+          'Could not analyze vocals. Try again or skip to DAW.',
+          [
+            { text: 'Skip', style: 'cancel' },
+            {
+              text: 'Retry',
+              onPress: () => stopRecordingAndAnalyzeBand(),
+            },
           ]
         );
       }
@@ -176,25 +241,8 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const handleStop = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (isRecording) {
-      setIsRecording(false);
-      setMicLevel(0);
-      setIsSaving(true);
-      const { cloudUrl } = await stopAndSaveRecording({
-        userId: userId ?? 'anonymous', bpm: 120, key: 'C',
-        autoTunePct: autoTune, instruments: activeInstrs,
-      });
-      setIsSaving(false);
-      if (cloudUrl) {
-        setLastUrl(cloudUrl);
-        Alert.alert(
-          'Saved to Cloud ☁️', 
-          'Awesome take! Do you want to open the DAW to add more layers?',
-          [
-            { text: 'Not Now', style: 'cancel' },
-            { text: 'Open DAW', onPress: () => navigation.navigate('Multitrack') }
-          ]
-        );
-      }
+      // Use the same workflow as handleRecord when stopping
+      await stopRecordingAndAnalyzeBand();
     } else {
       await stopPlayback();
       setIsPlaying(false);
@@ -270,9 +318,9 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           <View style={s.songRow}>
             <Text style={s.songName}>Master Session</Text>
             <View style={s.liveRow}>
-              <View style={[s.liveDot, isRecording && s.liveDotRec]} />
-              <Text style={[s.liveTx, isRecording && { color: Colors.red }]}>
-                {isSaving ? '☁ UPLOADING...' : isRecording ? 'LIVE RECORDING' : lastRecordUrl ? 'Cloud ✓' : 'Service Ready'}
+              <View style={[s.liveDot, isRecording && s.liveDotRec, isAnalyzing && { backgroundColor: Colors.gold }]} />
+              <Text style={[s.liveTx, isRecording && { color: Colors.red }, isAnalyzing && { color: Colors.gold }]}>
+                {isAnalyzing ? '🎼 MAESTRO is listening...' : isSaving ? '☁ UPLOADING...' : isRecording ? 'LIVE RECORDING' : lastRecordUrl ? 'Cloud ✓' : 'Service Ready'}
               </Text>
             </View>
           </View>

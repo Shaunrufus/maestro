@@ -17,6 +17,7 @@ import { PaywallScreen }  from '../screens/PaywallScreen';
 import { MultitrackScreen } from '../screens/MultitrackScreen';
 import { CompingScreen }    from '../screens/CompingScreen';
 import { MixModeScreen }    from '../screens/MixModeScreen';
+import { BandResultsScreen } from '../screens/BandResultsScreen';
 import { Colors }         from '../theme';
 
 const Tab   = createBottomTabNavigator();
@@ -37,7 +38,7 @@ const TabIcon = ({ label, active }: { label: string; active: boolean }) => (
   </View>
 );
 
-// Studio tab has nested stack (Studio → Guru → Lyrics)
+// Studio tab has nested stack (Studio → Guru → Lyrics → BandResults)
 function StudioStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -48,6 +49,7 @@ function StudioStack() {
       <Stack.Screen name="Guru"        component={GuruScreen}   />
       <Stack.Screen name="Lyrics"      component={LyricsScreen} />
       <Stack.Screen name="Paywall"     component={PaywallScreen} />
+      <Stack.Screen name="BandResults" component={BandResultsScreen} />
     </Stack.Navigator>
   );
 }

@@ -41,6 +41,32 @@ export interface Project {
   updatedAt:   Date;
 }
 
+// Band Engine types
+export interface BandAnalysis {
+  key: string;
+  key_short: string;
+  key_type: string;
+  bpm: number;
+  duration_sec: number;
+  chord_sequence: any[];
+  simple_progression: string[];
+  progression_str: string;
+  avg_pitch_note: string;
+  genre_hint: string;
+  voiced_pct: number;
+}
+
+export interface BandArrangement {
+  id: string;
+  label: string;
+  emoji: string;
+  desc: string;
+  color: string;
+  audio_base64?: string | null;
+  has_audio: boolean;
+  duration_sec?: number;
+}
+
 export interface StudioState {
   // Session
   isRecording:   boolean;
@@ -61,6 +87,11 @@ export interface StudioState {
   // Backend
   backendUrl:    string;
 
+  // Band Engine (Phase 5)
+  bandAnalysis:      BandAnalysis | null;
+  arrangements:      BandArrangement[];
+  selectedArrangement: string | null;
+
   // Actions
   setRecording:   (v: boolean) => void;
   setPlaying:     (v: boolean) => void;
@@ -79,6 +110,11 @@ export interface StudioState {
   updateTrackPan:    (trackId: string, pan: number) => void;
   toggleMute:     (trackId: string) => void;
   toggleSolo:     (trackId: string) => void;
+
+  // Band Engine actions
+  setBandAnalysis:       (analysis: BandAnalysis | null) => void;
+  setArrangements:       (arrangements: BandArrangement[]) => void;
+  selectArrangement:     (id: string | null) => void;
 }
 
 // ─── Default project factory ───────────────────────────────────────────────
@@ -111,6 +147,11 @@ export const useStudioStore = create<StudioState>((set) => ({
   userEmail:      null,
   isPro:          false,
   backendUrl:     'https://maestro-production-c525.up.railway.app',
+
+  // Band Engine initial state
+  bandAnalysis:       null,
+  arrangements:       [],
+  selectedArrangement: null,
 
   setRecording:   (v) => set({ isRecording: v }),
   setPlaying:     (v) => set({ isPlaying: v }),
@@ -200,4 +241,9 @@ export const useStudioStore = create<StudioState>((set) => ({
         ),
       } : null,
     })),
+
+  // Band Engine actions
+  setBandAnalysis: (analysis) => set({ bandAnalysis: analysis }),
+  setArrangements: (arrangements) => set({ arrangements }),
+  selectArrangement: (id) => set({ selectedArrangement: id }),
 }));
