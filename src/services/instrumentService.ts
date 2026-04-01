@@ -10,14 +10,14 @@
 //   tabla.mp3     → https://freesound.org/s/411090/  (tabla hit)
 //   flute.mp3     → https://freesound.org/s/528491/  (flute note)
 //   sitar.mp3     → https://freesound.org/s/415775/  (sitar pluck)
-//   orchestral.mp3→ https://freesound.org/s/463006/  (strings)
+//   strings.mp3   → https://freesound.org/s/463006/  (strings)
 //
 // All are CC0 / Attribution-licensed. Rename to match keys above.
 // ──────────────────────────────────────────────────────────────────────────
 
 import { Audio } from 'expo-av';
 
-type InstrKey = 'keys' | 'guitar' | 'tabla' | 'flute' | 'sitar' | 'orchestral';
+type InstrKey = 'keys' | 'guitar' | 'tabla' | 'flute' | 'sitar' | 'strings';
 
 // Map instrument key → require() path
 // When files don't exist yet we use null (silent mode).
@@ -28,7 +28,7 @@ const SOUND_MAP: Record<InstrKey, any | null> = {
   tabla:       require('../../assets/sounds/tabla.mp3'),
   flute:       require('../../assets/sounds/flute.mp3'),
   sitar:       require('../../assets/sounds/sitar.mp3'),
-  orchestral:  require('../../assets/sounds/orchestral.mp3'),
+  strings:     require('../../assets/sounds/strings.mp3'),
 };
 
 let currentPreviewSound: Audio.Sound | null = null;
