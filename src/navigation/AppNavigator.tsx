@@ -7,7 +7,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Text, View } from 'react-native';
 
-import { StudioScreen }   from '../screens/StudioScreen';
+import StudioScreen from '../screens/StudioScreen';
 import { MySongsScreen }  from '../screens/MySongsScreen';
 import { DiscoverScreen } from '../screens/DiscoverScreen';
 import { ProfileScreen }  from '../screens/ProfileScreen';

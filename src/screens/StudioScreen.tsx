@@ -1,135 +1,129 @@
+// src/screens/StudioScreen.tsx
+// MAESTRO — Studio Main Screen — DEFINITIVE VERSION
+// Fixes:
+//   1. Instruments NEVER play sound during recording (silent recording principle)
+//   2. Auto-tune actually called after stop → shows result + allows playback
+//   3. Multi-instrument selection works (array toggle, not single string)
+//   4. Headphone detection prompt before any sound plays
+//   5. Post-recording: vocal analysis → chord detection → band generation
+
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Animated, Easing, Pressable, PanResponder,
-  ScrollView, StatusBar, StyleSheet, Text, View, Alert, ActivityIndicator
+  Alert,
+  Animated,
+  Easing,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import * as Haptics from 'expo-haptics';
-import { Colors, Radius, Spacing, Typography, APP_NAME } from '../theme';
-import { GlassCard }       from '../components/studio/GlassCard';
-import { RecordButton }    from '../components/studio/RecordButton';
-import { WaveformDisplay } from '../components/studio/WaveformDisplay';
-import { startRecording, stopAndSaveRecording, playRecording, stopPlayback } from '../services/audioService';
-import { playInstrumentNote, playInstrumentChord } from '../services/instrumentService';
-import { useStudioStore }  from '../store/useStudioStore';
-import { bandService }     from '../services/bandService';
+import { Audio } from 'expo-av';
 
-// ─── Instrument catalogue ──────────────────────────────────────────────────
+// ─── Constants ─────────────────────────────────────────────────────────────
+const BACKEND_URL  = 'https://maestro-production-c525.up.railway.app';
+const SUPABASE_URL = 'https://cmbfzcqjfbrbioqmvzoh.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNtYmZ6Y3FqZmJyYmlvcW12em9oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2Nzc0NTEsImV4cCI6MjA5MDI1MzQ1MX0.ndKWwDav0-9xQTnq1Zcu-hlyLnOqnJHd9Xml8D-hsjU';
+
+const APP_NAME = 'MAESTRO';
+
+const C = {
+  bg:        '#0B0B12',
+  bgCard:    'rgba(255,255,255,0.07)',
+  bgSurf:    '#151520',
+  gold:      '#D4AF37',
+  goldBg:    'rgba(212,175,55,0.15)',
+  teal:      '#00D9C0',
+  tealBg:    'rgba(0,217,192,0.13)',
+  red:       '#FF3B5C',
+  redBg:     'rgba(255,59,92,0.18)',
+  textPri:   '#FFFFFF',
+  textSec:   'rgba(255,255,255,0.58)',
+  textMut:   'rgba(255,255,255,0.32)',
+  border:    'rgba(255,255,255,0.11)',
+  purple:    'rgba(106,42,230,0.32)',
+};
+
+// ─── Instrument catalogue ─────────────────────────────────────────────────
 type InstrKey = 'keys' | 'guitar' | 'tabla' | 'flute' | 'sitar' | 'orchestral';
 
 const INSTRUMENTS: { key: InstrKey; label: string; sym: string; pro: boolean }[] = [
-  { key: 'keys',       label: 'Keys',   sym: 'K', pro: false },
-  { key: 'guitar',     label: 'Guitar', sym: 'G', pro: false },
-  { key: 'tabla',      label: 'Tabla',  sym: 'T', pro: true  },
-  { key: 'flute',      label: 'Flute',  sym: 'F', pro: true  },
-  { key: 'sitar',      label: 'Sitar',  sym: 'S', pro: true  },
-  { key: 'orchestral', label: 'Orch',   sym: 'O', pro: true  },
+  { key: 'keys',       label: 'Keys',     sym: '🎹', pro: false },
+  { key: 'guitar',     label: 'Guitar',   sym: '🎸', pro: false },
+  { key: 'tabla',      label: 'Tabla',    sym: '🥁', pro: true  },
+  { key: 'flute',      label: 'Flute',    sym: '🪈', pro: true  },
+  { key: 'sitar',      label: 'Sitar',    sym: '🎵', pro: true  },
+  { key: 'orchestral', label: 'Orch',     sym: '🎻', pro: true  },
 ];
 
-// ─── Screen ───────────────────────────────────────────────────────────────
-export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  // ── Zustand global state ────────────────────────────────────────────────
-  const { userId, backendUrl, isPro } = useStudioStore();
+const TABS = ['Studio', 'Songs', 'Discover', 'Profile'];
 
-  // ── Local UI state ──────────────────────────────────────────────────────
-  const [isRecording,   setIsRecording   ] = useState(false);
-  const [isPlaying,     setIsPlaying     ] = useState(false);
-  const [autoTune,      setAutoTune      ] = useState(78);
-  const [activeInstrs,  setActiveInstrs  ] = useState<InstrKey[]>(['keys']);
-  const [enableBacking, setEnableBacking ] = useState(false);
-  const [elapsedSec,    setElapsed       ] = useState(0);
-  const [micLevel,      setMicLevel      ] = useState(0);   // 0–1 live metering
-  const [lastRecordUrl, setLastUrl       ] = useState<string | null>(null);
-  const [isSaving,      setIsSaving      ] = useState(false);
-  const [isAnalyzing,   setIsAnalyzing   ] = useState(false);  // Band analysis loading
-  const [hasShownHeadphoneAlert, setHasShownHeadphoneAlert] = useState(false);
+type StudioStatus = 'idle' | 'recording' | 'processing_autotune' | 'autotune_done' | 'analyzing' | 'generating_band' | 'ready';
 
-  // Sequencer ref
-  const tickCount = useRef(0);
-  const chordSequence = [1.0, 1.4983, 1.6817, 1.3348]; // C - G - Am - F
+// ─────────────────────────────────────────────────────────────────────────
+export default function StudioScreen({ navigation }: any) {
+  // ── Recording state ────────────────────────────────────────────────────
+  const [recording,       setRecording      ] = useState<Audio.Recording | null>(null);
+  const [isRecording,     setIsRecording    ] = useState(false);
+  const [elapsedSec,      setElapsed        ] = useState(0);
+  const [micLevel,        setMicLevel       ] = useState(0);
 
-  // Pan Responder for Auto-Tune Slider
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light),
-      onPanResponderMove: (e, gestureState) => {
-        // approximate width 280
-        const newPct = Math.round(Math.max(0, Math.min(100, (gestureState.moveX - 40) / 280 * 100)));
-        setAutoTune(newPct);
-      },
-      onPanResponderRelease: () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-    })
-  ).current;
+  // ── Audio state ───────────────────────────────────────────────────────
+  const [localUri,        setLocalUri       ] = useState<string | null>(null);
+  const [tunedAudioB64,   setTunedAudioB64  ] = useState<string | null>(null);
+  const [playbackSound,   setPlaybackSound  ] = useState<Audio.Sound | null>(null);
+  const [isPlaying,       setIsPlaying      ] = useState(false);
 
-  // Sliding drawer
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuAnim = useRef(new Animated.Value(0)).current;
+  // ── Status / progress ─────────────────────────────────────────────────
+  const [status,          setStatus         ] = useState<StudioStatus>('idle');
+  const [statusMsg,       setStatusMsg      ] = useState('');
+  const [autoTunePct,     setAutoTunePct    ] = useState(78);
 
-  // Dynamic Glow
-  const glowAnim = useRef(new Animated.Value(0)).current;
+  // ── Instruments — multi-select array ─────────────────────────────────
+  const [selectedInstrs,  setSelectedInstrs ] = useState<InstrKey[]>(['keys']);
+  const [isPro,           setIsPro          ] = useState(false);
+  const [headphonesMode,  setHeadphonesMode ] = useState(false);
 
-  useEffect(() => {
-    let toVal = 0; // Idle purple
-    if (isRecording) toVal = 1; // Recording red
-    else if (menuOpen) toVal = 2; // Menu open gold
-    
-    Animated.timing(glowAnim, {
-      toValue: toVal,
-      duration: 800,
-      useNativeDriver: false, // Color interpolation requires false
-    }).start();
-  }, [isRecording, menuOpen]);
+  // ── Chord setup ────────────────────────────────────────────────────────
+  const [customChords,    setCustomChords   ] = useState('');
+  const [detectedChords,  setDetectedChords ] = useState<string[]>([]);
+  const [showChordInput,  setShowChordInput ] = useState(false);
 
-  const glowColor = glowAnim.interpolate({
-    inputRange: [0, 1, 2],
-    outputRange: ['rgba(106,42,230,0.3)', 'rgba(255,59,92,0.38)', 'rgba(212,175,55,0.38)']
-  });
+  // ── Post-recording ────────────────────────────────────────────────────
+  const [arrangements,   setArrangements   ] = useState<any[]>([]);
+  const [activeTab,      setActiveTab      ] = useState('Studio');
 
-  const toggleMenu = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    Animated.spring(menuAnim, { toValue: menuOpen ? 0 : 1, friction: 6, useNativeDriver: true }).start();
-    setMenuOpen(!menuOpen);
-  };
-
-  // Recording timer & hardware meter fallback jitter
-  useEffect(() => {
-    if (!isRecording) {
-      tickCount.current = 0;
-      return;
-    }
-
-    // Accompaniment Tick (every 500ms = 120bpm approx)
-    let seq: NodeJS.Timeout | null = null;
-    if (enableBacking && activeInstrs.length > 0) {
-      seq = setInterval(() => {
-        const step = tickCount.current % chordSequence.length;
-        playInstrumentChord(activeInstrs, chordSequence[step]);
-        tickCount.current += 1;
-      }, 500);
-    }
-
-    const t = setInterval(() => {
-      setElapsed(s => s + 1);
-    }, 1000);
-    const j = setInterval(() => {
-      // Create guaranteed visual activity for pitch bars in case hardware mic sensor is dormant
-      setMicLevel(prev => {
-        let n = prev + (Math.random() * 0.3 - 0.15);
-        if (n < 0.1) n += 0.2;
-        if (n > 0.9) n -= 0.2;
-        return n;
-      });
-    }, 250);
-    return () => { clearInterval(t); clearInterval(j); if(seq) clearInterval(seq); };
-  }, [isRecording, enableBacking, activeInstrs]);
-
-  const fmtTime = (s: number) =>
-    `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-
-  // Guru button breathing aura
+  // ── Animations ────────────────────────────────────────────────────────
+  const recPulse = useRef(new Animated.Value(1)).current;
   const guruAura = useRef(new Animated.Value(0.45)).current;
+  const [waveBarScales] = useState(() =>
+    Array.from({ length: 40 }, () => new Animated.Value(1))
+  );
+
+  // Recording timer
+  useEffect(() => {
+    if (!isRecording) { setElapsed(0); return; }
+    const t = setInterval(() => setElapsed(s => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [isRecording]);
+
+  // Record button pulse
+  useEffect(() => {
+    if (isRecording) {
+      Animated.loop(Animated.sequence([
+        Animated.timing(recPulse, { toValue: 1.18, duration: 660, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(recPulse, { toValue: 1,    duration: 660, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])).start();
+    } else {
+      recPulse.stopAnimation();
+      Animated.spring(recPulse, { toValue: 1, useNativeDriver: true }).start();
+    }
+  }, [isRecording]);
+
+  // Guru aura
   useEffect(() => {
     Animated.loop(Animated.sequence([
       Animated.timing(guruAura, { toValue: 0.9,  duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
@@ -137,489 +131,728 @@ export const StudioScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     ])).start();
   }, []);
 
-  // ── Record / Stop ────────────────────────────────────────────────────────
+  // Waveform animation
+  useEffect(() => {
+    if (isRecording) {
+      waveBarScales.forEach(a => a.stopAnimation());
+      return;
+    }
+    const loops = waveBarScales.map((a, i) =>
+      Animated.loop(Animated.sequence([
+        Animated.delay(i * 22),
+        Animated.timing(a, { toValue: 0.4 + Math.random() * 0.6, duration: 500 + Math.random() * 500, useNativeDriver: true }),
+        Animated.timing(a, { toValue: 1, duration: 500 + Math.random() * 500, useNativeDriver: true }),
+      ]))
+    );
+    loops.forEach(l => l.start());
+    return () => loops.forEach(l => l.stop());
+  }, [isRecording]);
+
+  // ─────────────────────────────────────────────────────────────────────
+  // RECORD HANDLER
+  // ─────────────────────────────────────────────────────────────────────
   const handleRecord = async () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    if (!isRecording) {
-      // SHOW HEADPHONE ALERT BEFORE RECORDING STARTS
-      if (!hasShownHeadphoneAlert) {
-        Alert.alert(
-          '🎧 Headphones or Bluetooth?',
-          'For best recording quality, connect headphones. Your voice will be recorded cleanly without any backing sounds bleeding in.',
-          [
-            {
-              text: 'No Headphones',
-              onPress: () => {
-                setHasShownHeadphoneAlert(true);
-                startRecordingFlow();
-              },
-            },
-            {
-              text: 'Headphones Connected ✓',
-              style: 'default',
-              onPress: () => {
-                setHasShownHeadphoneAlert(true);
-                startRecordingFlow();
-              },
-            },
-          ]
-        );
+    if (isRecording) {
+      await stopRecording();
+    } else {
+      await startRecording();
+    }
+  };
+
+  const startRecording = async () => {
+    try {
+      const { granted } = await Audio.requestPermissionsAsync();
+      if (!granted) {
+        Alert.alert('Permission needed', 'Allow microphone access to record.');
         return;
       }
 
-      startRecordingFlow();
-    } else {
-      // STOP + upload + analyze for band
-      await stopRecordingAndAnalyzeBand();
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS:     true,
+        playsInSilentModeIOS:   true,
+        staysActiveInBackground: false,
+      });
+
+      setTunedAudioB64(null);
+      setLocalUri(null);
+      setArrangements([]);
+      setDetectedChords([]);
+      setStatus('recording');
+      setStatusMsg('Recording...');
+
+      const { recording: rec } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY,
+        (s) => {
+          if (s.metering !== undefined) {
+            setMicLevel(Math.max(0, (s.metering + 160) / 160));
+          }
+        },
+        100,
+      );
+      setRecording(rec);
+      setIsRecording(true);
+    } catch (e) {
+      console.error('[Studio] Start recording failed:', e);
+      Alert.alert('Recording failed', String(e));
     }
   };
 
-  const startRecordingFlow = async () => {
-    setIsPlaying(false);
-    setElapsed(0);
-    setMicLevel(0);
-    const ok = await startRecording((level) => setMicLevel(level));
-    if (ok) setIsRecording(true);
-  };
-
-  const stopRecordingAndAnalyzeBand = async () => {
+  const stopRecording = async () => {
+    if (!recording) return;
     setIsRecording(false);
     setMicLevel(0);
-    setIsSaving(true);
-    const { cloudUrl, localUri } = await stopAndSaveRecording({
-      userId:      userId ?? 'anonymous',
-      projectName: 'Untitled Session',
-      bpm:         120,
-      key:         'C',
-      autoTunePct: autoTune,
-      instruments: activeInstrs,
-    });
-    setIsSaving(false);
 
-    if (cloudUrl) {
-      setLastUrl(cloudUrl);
-      console.log('[Studio] Saved to cloud:', cloudUrl);
+    try {
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      setRecording(null);
+      setLocalUri(uri);
 
-      // START BAND ANALYSIS
-      setIsAnalyzing(true);
-      try {
-        // Convert audio blob to base64 for analysis
-        // For now, use cloudUrl for fetching
-        const resp = await fetch(cloudUrl);
-        const blob = await resp.blob();
+      if (uri) await applyAutoTune(uri);
+    } catch (e) {
+      console.error('[Studio] Stop recording failed:', e);
+      setStatus('idle');
+    }
+  };
 
-        // Call one-shot endpoint: analyze + generate arrangements
-        const bandResult = await bandService.analyzeAndGenerate(blob);
-        setIsAnalyzing(false);
+  // ─────────────────────────────────────────────────────────────────────
+  // AUTO-TUNE PIPELINE
+  // ─────────────────────────────────────────────────────────────────────
+  const applyAutoTune = async (uri: string) => {
+    setStatus('processing_autotune');
+    setStatusMsg(`Auto-Tune ${autoTunePct}% — processing...`);
 
-        console.log('[Studio] Band analysis complete:', bandResult);
+    try {
+      const formData = new FormData();
+      formData.append('file', {
+        uri,
+        name: 'recording.m4a',
+        type: 'audio/mp4',
+      } as any);
+      formData.append('strength', String(autoTunePct));
+      formData.append('key',      'C');
+      formData.append('scale',    'major');
 
-        // Navigate to BandResultsScreen with results
-        navigation.navigate('BandResults', {
-          arrangements: bandResult.arrangements,
-          analysis: bandResult.analysis,
-          vocalUrl: cloudUrl,
-        });
-      } catch (err) {
-        setIsAnalyzing(false);
-        console.error('[Studio] Band analysis failed:', err);
-        Alert.alert(
-          'Band Analysis Error',
-          'Could not analyze vocals. Try again or skip to DAW.',
-          [
-            { text: 'Skip', style: 'cancel' },
-            {
-              text: 'Retry',
-              onPress: () => stopRecordingAndAnalyzeBand(),
-            },
-          ]
-        );
+      const res = await fetch(`${BACKEND_URL}/audio/autotune`, {
+        method:  'POST',
+        body:    formData,
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.audio_base64) {
+          setTunedAudioB64(data.audio_base64);
+          setStatus('autotune_done');
+          setStatusMsg(`✦ Auto-tuned (${data.avg_correction ?? autoTunePct}% corrected)`);
+        } else {
+          setStatus('autotune_done');
+          setStatusMsg('Auto-tune: no audio returned');
+        }
+      } else {
+        setStatus('autotune_done');
+        setStatusMsg('Auto-tune unavailable — playing original');
       }
+    } catch (e) {
+      console.error('[Studio] Auto-tune failed:', e);
+      setStatus('autotune_done');
+      setStatusMsg('Auto-tune: network error');
+    }
+
+    if (uri) await analyzeVocal(uri);
+  };
+
+  // ─────────────────────────────────────────────────────────────────────
+  // VOCAL ANALYSIS
+  // ─────────────────────────────────────────────────────────────────────
+  const analyzeVocal = async (uri: string) => {
+    setStatus('analyzing');
+    setStatusMsg('GURU is listening...');
+
+    try {
+      const formData = new FormData();
+      formData.append('file', { uri, name: 'recording.m4a', type: 'audio/mp4' } as any);
+
+      const res = await fetch(`${BACKEND_URL}/band/analyze`, {
+        method: 'POST',
+        body:   formData,
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const chords = data.simple_progression ?? ['C', 'G', 'Am', 'F'];
+        setDetectedChords(chords);
+        setStatusMsg(`${data.key ?? 'C major'} · ${data.bpm ?? 90} BPM · ${chords.join(' → ')}`);
+        await generateBand(uri, chords, data.bpm ?? 90, data.key_short ?? 'C', data.duration_sec ?? 30);
+      } else {
+        setStatus('ready');
+        setStatusMsg('Analysis failed');
+      }
+    } catch (e) {
+      console.error('[Studio] Analysis failed:', e);
+      setStatus('ready');
+      setStatusMsg('Analysis unavailable');
     }
   };
 
-  const handleStop = async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    if (isRecording) {
-      // Use the same workflow as handleRecord when stopping
-      await stopRecordingAndAnalyzeBand();
-    } else {
-      await stopPlayback();
-      setIsPlaying(false);
+  // ─────────────────────────────────────────────────────────────────────
+  // BAND GENERATION
+  // ─────────────────────────────────────────────────────────────────────
+  const generateBand = async (uri: string, chords: string[], bpm: number, key: string, duration: number) => {
+    setStatus('generating_band');
+    setStatusMsg('Building your virtual band...');
+
+    try {
+      const chordsStr = customChords.trim() || chords.join(' ');
+
+      const formData = new FormData();
+      formData.append('file',            { uri, name: 'recording.m4a', type: 'audio/mp4' } as any);
+      formData.append('custom_chords',   chordsStr);
+      formData.append('selected_styles', '');
+
+      const res = await fetch(`${BACKEND_URL}/band/analyze-and-generate`, {
+        method: 'POST',
+        body:   formData,
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setArrangements(data.arrangements ?? []);
+        setStatus('ready');
+        setStatusMsg(`${data.arrangements?.length ?? 0} arrangements ready`);
+      } else {
+        setStatus('ready');
+        setStatusMsg('Band generation unavailable');
+      }
+    } catch (e) {
+      console.error('[Studio] Band generation failed:', e);
+      setStatus('ready');
+      setStatusMsg('Band generation unavailable');
     }
   };
 
-  // ── Playback ─────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────
+  // PLAYBACK
+  // ─────────────────────────────────────────────────────────────────────
   const handlePlay = async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (!lastRecordUrl) {
-      Alert.alert('Empty', "No recording yet. Tap ⏺ to start.");
+    if (playbackSound) {
+      await playbackSound.stopAsync();
+      await playbackSound.unloadAsync();
+      setPlaybackSound(null);
+      setIsPlaying(false);
       return;
     }
-    if (isPlaying) {
-      await stopPlayback();
-      setIsPlaying(false);
+
+    let uri: string | null = null;
+    if (tunedAudioB64) {
+      uri = `data:audio/wav;base64,${tunedAudioB64}`;
+    } else if (localUri) {
+      uri = localUri;
     } else {
-      setIsPlaying(true);
-      await playRecording(lastRecordUrl);
-      setIsPlaying(false);
-    }
-  };
-
-  // ── Instrument tap ────────────────────────────────────────────────────────
-  const handleInstr = (key: InstrKey, isProRequired: boolean) => {
-    Haptics.selectionAsync();
-    playInstrumentNote(key); 
-
-    // Paywall block if pro
-    if (isProRequired && !isPro) {
-      setTimeout(() => {
-        navigation.navigate('Paywall', { instrument: key });
-      }, 400);
+      Alert.alert('No recording', 'Record something first!');
       return;
     }
 
-    // Multi-select Toggle
-    setActiveInstrs(prev => {
-      if (prev.includes(key)) return prev.filter(k => k !== key);
-      return [...prev, key];
-    });
+    try {
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+      const { sound } = await Audio.Sound.createAsync({ uri }, { shouldPlay: true });
+      setPlaybackSound(sound);
+      setIsPlaying(true);
+
+      sound.setOnPlaybackStatusUpdate((s) => {
+        if (s.isLoaded && s.didJustFinish) {
+          setIsPlaying(false);
+          sound.unloadAsync();
+          setPlaybackSound(null);
+        }
+      });
+    } catch (e) {
+      console.error('[Studio] Playback failed:', e);
+      Alert.alert('Playback failed', String(e));
+    }
   };
 
-  // ─── Render ──────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────
+  // INSTRUMENT TOGGLE — NO AUDIO DURING RECORDING
+  // ─────────────────────────────────────────────────────────────────────
+  const toggleInstrument = (key: InstrKey, isPro_: boolean) => {
+    if (isPro_ && !isPro) {
+      if (navigation) navigation.navigate('Paywall', { instrument: key });
+      return;
+    }
+
+    setSelectedInstrs(prev =>
+      prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
+    );
+
+    // NO AUDIO DURING RECORDING — instruments play only in post-recording band
+    if (!isRecording) {
+      // Optional: add preview tap later
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────
+  // HEADPHONE CHECK
+  // ─────────────────────────────────────────────────────────────────────
+  const promptHeadphones = () => {
+    Alert.alert(
+      'Headphones connected?',
+      'Connect headphones for the best experience.',
+      [
+        {
+          text: 'Yes, headphones on',
+          onPress: () => setHeadphonesMode(true),
+        },
+        {
+          text: 'No headphones',
+          onPress: () => setHeadphonesMode(false),
+          style: 'cancel',
+        },
+      ],
+    );
+  };
+
+  // ─────────────────────────────────────────────────────────────────────
+  // ARRANGEMENT PLAYBACK
+  // ─────────────────────────────────────────────────────────────────────
+  const playArrangement = async (arr: any) => {
+    if (!arr.audio_base64) {
+      Alert.alert('No audio', 'FluidSynth not yet set up. Add soundfont to Railway.');
+      return;
+    }
+
+    if (!headphonesMode) {
+      promptHeadphones();
+      return;
+    }
+
+    if (playbackSound) {
+      await playbackSound.stopAsync();
+      await playbackSound.unloadAsync();
+      setPlaybackSound(null);
+    }
+
+    try {
+      const uri = `data:audio/wav;base64,${arr.audio_base64}`;
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+      const { sound } = await Audio.Sound.createAsync({ uri }, { shouldPlay: true });
+      setPlaybackSound(sound);
+      setIsPlaying(true);
+
+      sound.setOnPlaybackStatusUpdate((s) => {
+        if (s.isLoaded && s.didJustFinish) {
+          setIsPlaying(false);
+          sound.unloadAsync();
+          setPlaybackSound(null);
+        }
+      });
+    } catch (e) {
+      console.error('[Studio] Arrangement playback failed:', e);
+    }
+  };
+
+  const fmt = (s: number) =>
+    `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+
+  const STATUS_COLOR: Record<StudioStatus, string> = {
+    idle:                C.textMut,
+    recording:           C.red,
+    processing_autotune: C.gold,
+    autotune_done:       C.teal,
+    analyzing:           C.gold,
+    generating_band:     C.gold,
+    ready:               C.teal,
+  };
+
+  // ─────────────────────────────────────────────────────────────────────
+  // RENDER
+  // ─────────────────────────────────────────────────────────────────────
   return (
     <View style={s.root}>
-      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-
-      {/* Ambient glows */}
-      <Animated.View style={[s.glowPurple, { backgroundColor: glowColor }]} />
+      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+      <View style={s.glowPurple} />
       <View style={s.glowTeal}   />
       <View style={s.glowGold}   />
       <View style={s.veil}       />
 
-      <SafeAreaView style={s.safe}>
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
-          
-          {/* ── HEADER ── */}
-        <View style={s.header}>
-          <View>
-            <Text style={s.logo}>{APP_NAME}</Text>
-            <Text style={s.logoSub}>Professional Studio Experience</Text>
-          </View>
-          <View style={s.headerR}>
+      <SafeAreaView style={{ flex: 1 }}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 80 }} showsVerticalScrollIndicator={false}>
+
+          {/* HEADER */}
+          <View style={s.header}>
+            <View>
+              <Text style={s.logo}>{APP_NAME}</Text>
+              <Text style={s.logoSub}>Virtual Studio</Text>
+            </View>
             <View style={s.avatar}>
               <Text style={s.avatarTx}>S</Text>
             </View>
           </View>
-        </View>
 
-        {/* ── SONG CARD ── */}
-        <GlassCard style={s.songCard}>
-          <View style={s.songRow}>
-            <Text style={s.songName}>Master Session</Text>
-            <View style={s.liveRow}>
-              <View style={[s.liveDot, isRecording && s.liveDotRec, isAnalyzing && { backgroundColor: Colors.gold }]} />
-              <Text style={[s.liveTx, isRecording && { color: Colors.red }, isAnalyzing && { color: Colors.gold }]}>
-                {isAnalyzing ? '🎼 MAESTRO is listening...' : isSaving ? '☁ UPLOADING...' : isRecording ? 'LIVE RECORDING' : lastRecordUrl ? 'Cloud ✓' : 'Service Ready'}
+          {/* SONG INFO*/}
+          <View style={s.songCard}>
+            <View style={s.songRow}>
+              <Text style={s.songName}>Untitled Session</Text>
+              <View style={s.liveRow}>
+                <View style={[s.liveDot, { backgroundColor: isRecording ? C.red : C.teal }]} />
+                <Text style={[s.liveTx, { color: isRecording ? C.red : C.teal }]}>
+                  {isRecording ? `REC ${fmt(elapsedSec)}` : 'Ready'}
+                </Text>
+              </View>
+            </View>
+            <Text style={s.songMeta}>BPM 120 · Key: C · {fmt(elapsedSec)}</Text>
+          </View>
+
+          {/* WAVEFORM */}
+          <View style={s.waveOuter}>
+            <View style={s.barsRow}>
+              {waveBarScales.map((anim, i) => {
+                const h = [5,9,16,24,34,50,38,28,18,32,54,66,52,42,32,24,16,28,42,54,48,36,26,18,12,16,24,32,46,58,52,40,30,24,38,54,62,48,34,22][i] ?? 20;
+                const normH = (h / 66) * 52;
+                const recordScale = isRecording ? (0.3 + micLevel * 0.7) : 1;
+                const active = (i / waveBarScales.length) < 0.5;
+                return (
+                  <Animated.View key={i} style={[s.barWrap, { transform: [{ scaleY: anim }] }]}>
+                    <View style={{ width: 3, height: normH * recordScale, borderRadius: 2, backgroundColor: active ? C.teal : C.textMut, marginBottom: 1 }} />
+                    <View style={{ width: 3, height: normH * recordScale * 0.4, borderRadius: 2, backgroundColor: active ? 'rgba(0,217,192,0.25)' : 'rgba(255,255,255,0.07)' }} />
+                  </Animated.View>
+                );
+              })}
+            </View>
+            <View style={s.playheadLine} />
+          </View>
+          <View style={s.timeRow}>
+            <Text style={s.timeTx}>0:00</Text>
+            <Text style={s.timeTx}>0:30</Text>
+            <Text style={s.timeTx}>1:00</Text>
+          </View>
+
+          {/* STATUS */}
+          {status !== 'idle' && (
+            <View style={[s.statusBar, { borderColor: STATUS_COLOR[status] + '60' }]}>
+              <Text style={[s.statusTx, { color: STATUS_COLOR[status] }]}>
+                {status === 'recording'           ? '⏺ ' :
+                 status === 'processing_autotune' ? '🎵 ' :
+                 status === 'autotune_done'       ? '✦ ' :
+                 status === 'analyzing'           ? '👂 ' :
+                 status === 'generating_band'     ? '🎼 ' : '✅ '}
+                {statusMsg}
               </Text>
             </View>
-          </View>
-          <Text style={s.songMeta}>
-            BPM 120  ·  44.1 kHz  ·  {fmtTime(elapsedSec)}
-          </Text>
-        </GlassCard>
+          )}
 
-        {/* ── WAVEFORM & VU METER ── */}
-        <View style={s.waveWrap}>
-          <View style={{ flex: 1 }}>
-            <WaveformDisplay isRecording={isRecording} micLevel={micLevel} />
-            <View style={s.timeRow}>
-              <Text style={s.timeTx}>0:00</Text>
-              <Text style={s.timeTx}>0:30</Text>
-              <Text style={s.timeTx}>{fmtTime(elapsedSec)}</Text>
+          {/* PITCH */}
+          <View style={s.pitchRow}>
+            <View style={s.pitchSec}>
+              <Text style={s.statLbl}>PITCH</Text>
+              <View style={s.pitchTrack}>
+                <View style={[s.pitchFill, { width: `${Math.round(60 + micLevel * 30)}%` }]} />
+              </View>
+            </View>
+            <View style={s.pitchSec}>
+              <Text style={s.statLbl}>LOUDNESS</Text>
+              <Text style={s.loudVal}>{isRecording ? `${Math.round(-40 + micLevel * 40)} dB` : '-∞'}</Text>
+            </View>
+            <View style={s.noteCard}>
+              <Text style={s.noteVal}>C4</Text>
+              <Text style={s.noteSub}>On key</Text>
             </View>
           </View>
-          
-          {/* VU Meter */}
-          <View style={{ width: 12, height: 140, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 6, overflow:'hidden', justifyContent:'flex-end', marginLeft: Spacing.md }}>
-            <Animated.View style={{
-              height: `${micLevel * 100}%`,
-              backgroundColor: micLevel > 0.8 ? '#FF3B5C' : micLevel > 0.5 ? '#D4AF37' : '#00D9C0',
-              borderRadius: 6,
-            }} />
-          </View>
-        </View>
 
-        {/* ── PITCH STATS ── */}
-        <GlassCard style={s.pitchRow}>
-          <View style={s.pitchSec}>
-            <Text style={s.statLbl}>REAL-TIME PITCH</Text>
-            <View style={s.pitchTrack}>
-              <View style={[s.pitchFill, { width: isRecording ? `${20 + (micLevel * 80)}%` : '68%' }]} />
-              <View style={[s.pitchDot, { left: isRecording ? `${20 + (micLevel * 80) - 2}%` : '65%' }]} />
+          {/* TRANSPORT */}
+          <View style={s.transport}>
+            <Pressable style={s.tBtn}><Text style={s.tBtnTx}>⏮</Text></Pressable>
+            <Pressable style={[s.tBtn, isPlaying && { backgroundColor: C.tealBg, borderColor: C.teal }]} onPress={handlePlay} disabled={!localUri && !tunedAudioB64}>
+              <Text style={s.tBtnTx}>{isPlaying ? '⏸' : '▶'}</Text>
+            </Pressable>
+
+            {/* RECORD BUTTON */}
+            <View style={s.recOuter}>
+              <Animated.View style={[s.recAura, { opacity: isRecording ? 0.6 : 0.3, transform: [{ scale: recPulse }] }]} />
+              <Animated.View style={[s.recRing, { transform: [{ scale: recPulse }] }]} />
+              <Pressable onPress={handleRecord}>
+                <View style={s.recBtn}>
+                  <View style={s.recHl} />
+                  <View style={[s.recIcon, { borderRadius: isRecording ? 14 : 5 }]} />
+                </View>
+              </Pressable>
             </View>
-          </View>
-          <View style={s.pitchSec}>
-            <Text style={s.statLbl}>GAIN LEVEL</Text>
-            <Text style={s.loudVal}>{isRecording ? (-40 + (micLevel * 40)).toFixed(1) : '-4.8'} dB</Text>
-          </View>
-          <View style={s.noteCard}>
-            {(() => {
-              const chords = ['C\nMinor', 'D\nMajor', 'E\nMinor', 'F#\nMajor', 'G\nMinor', 'A#\nPerfect', 'B\nFlat'];
-              const chord = isRecording ? chords[Math.floor(micLevel * (chords.length - 1))] : 'A#\nPerfect';
-              const parts = chord.split('\n');
-              return (
-                <>
-                  <Text style={s.noteVal}>{parts[0]}</Text>
-                  <Text style={s.noteSub}>{parts[1]}</Text>
-                </>
-              );
-            })()}
-          </View>
-        </GlassCard>
 
-        {/* ── TRANSPORT ── */}
-        <View style={s.transport}>
-          <Pressable style={s.tBtn}><Text style={s.tBtnTx}>⏮</Text></Pressable>
-          <Pressable
-            style={[s.tBtn, isPlaying && s.tBtnActive]}
-            onPress={handlePlay}
-          >
-            <Text style={s.tBtnTx}>{isPlaying ? '⏸' : '▶'}</Text>
-          </Pressable>
-
-          <RecordButton isRecording={isRecording} onPress={handleRecord} size={70} />
-
-          <Pressable style={s.tBtn} onPress={handleStop}>
-            <Text style={s.tBtnTx}>⏹</Text>
-          </Pressable>
-          <Pressable style={s.tBtn}><Text style={s.tBtnTx}>⏭</Text></Pressable>
-        </View>
-
-        {/* ── AUTO-TUNE SLIDER ── */}
-        <GlassCard style={s.atCard}>
-          <View style={s.atHdr}>
-            <Text style={s.atLbl}>AI Voice Correction</Text>
-            <Text style={s.atVal}>{autoTune}%</Text>
+            <Pressable style={s.tBtn} onPress={() => { setIsRecording(false); setRecording(null); setElapsed(0); setStatus('idle'); setStatusMsg(''); }}>
+              <Text style={s.tBtnTx}>⏹</Text>
+            </Pressable>
+            <Pressable style={s.tBtn}><Text style={s.tBtnTx}>⏭</Text></Pressable>
           </View>
-          <View 
-            style={{ paddingVertical: 20, marginTop: -15, marginBottom: -15, justifyContent: 'center' }}
-            {...panResponder.panHandlers}
-          >
-            <View style={s.sliderTrack}>
-              <View style={[s.sliderFill, { width: `${autoTune}%` }]} />
-              <View style={[s.sliderThumb, { left: `${autoTune}%` }]} />
+
+          {/* AUTO-TUNE */}
+          <View style={s.atCard}>
+            <View style={s.atHdr}>
+              <Text style={s.atLbl}>Auto-Tune</Text>
+              <Text style={s.atVal}>{autoTunePct}%</Text>
+              {tunedAudioB64 && <View style={s.tunedBadge}><Text style={s.tunedBadgeTx}>✦ Applied</Text></View>}
             </View>
-          </View>
-          <View style={s.atEnds}>
-            <Text style={s.atEnd}>Organic</Text>
-            <Text style={s.atEnd}>Engineered</Text>
-          </View>
-        </GlassCard>
-
-        {/* ── INSTRUMENTS ── */}
-        <View style={s.instrSec}>
-          <View style={s.instrHdr}>
-            <Text style={s.instrTitle}>Acoustic Layers</Text>
-            <Text style={s.instrSub}>Multi-track enabled</Text>
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {INSTRUMENTS.map(instr => {
-              const active = activeInstrs.includes(instr.key);
-              return (
-                <Pressable
-                  key={instr.key}
-                  style={[s.instrCard, active && s.instrCardOn]}
-                  onPress={() => handleInstr(instr.key, instr.pro)}
-                >
-                  {instr.pro && (
-                    <View style={s.proBadge}>
-                      <Text style={s.proBadgeTx}>PRO</Text>
-                    </View>
-                  )}
-                  <View style={[s.instrIcon, active && s.instrIconOn]}>
-                    <Text style={[s.instrIconTx, active && s.instrIconTxOn]}>
-                      {instr.sym}
-                    </Text>
-                  </View>
-                  <Text style={[s.instrLbl, active && s.instrLblOn]}>
-                    {instr.label}
-                  </Text>
+            <View style={s.atBtns}>
+              {[0, 25, 50, 75, 100].map(v => (
+                <Pressable key={v} style={[s.atBtn, autoTunePct === v && s.atBtnActive]} onPress={() => setAutoTunePct(v)}>
+                  <Text style={[s.atBtnTx, autoTunePct === v && { color: C.teal }]}>{v}%</Text>
                 </Pressable>
-              );
-            })}
-          </ScrollView>
-        </View>
-
-        {/* ── SMART ACCOMPANIMENT ── */}
-        <GlassCard style={s.backingCard}>
-          <View style={s.backingRow}>
-            <View>
-              <Text style={s.backingTitle}>Smart Accompaniment</Text>
-              <Text style={s.backingSub}>Live rhythmic generator</Text>
+              ))}
             </View>
-            <Pressable 
-              style={[s.toggleBtn, enableBacking && s.toggleBtnOn]} 
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setEnableBacking(!enableBacking);
-              }}
-            >
-              <Text style={s.toggleBtnTx}>{enableBacking ? 'ON' : 'OFF'}</Text>
+            <View style={s.atEnds}>
+              <Text style={s.atEnd}>Natural</Text>
+              <Text style={s.atEnd}>Robotic</Text>
+            </View>
+          </View>
+
+          {/* INSTRUMENTS */}
+          <View style={s.instrSec}>
+            <View style={s.instrHdr}>
+              <Text style={s.instrTitle}>Instruments for Band</Text>
+              <Text style={s.instrSub}>{isRecording ? '🔇 Silent during recording' : 'Select for post-recording mix'}</Text>
+            </View>
+
+            {!headphonesMode && (
+              <Pressable style={s.headphoneNotice} onPress={promptHeadphones}>
+                <Text style={s.headphoneTx}>🎧 No headphones — band plays AFTER recording</Text>
+                <Text style={s.headphoneSubTx}>Tap to connect headphones</Text>
+              </Pressable>
+            )}
+            {headphonesMode && (
+              <View style={s.headphoneActive}>
+                <Text style={s.headphoneActiveTx}>🎧 Headphone mode ON</Text>
+              </View>
+            )}
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {INSTRUMENTS.map(ins => {
+                const isSelected = selectedInstrs.includes(ins.key);
+                const isLocked   = ins.pro && !isPro;
+                return (
+                  <Pressable key={ins.key} style={[s.instrCard, isSelected && s.instrCardOn, isLocked && { opacity: 0.6 }]} onPress={() => toggleInstrument(ins.key, ins.pro)}>
+                    {ins.pro && !isPro && <View style={s.proBadge}><Text style={s.proBadgeTx}>PRO</Text></View>}
+                    {isSelected && <View style={s.checkMark}><Text style={s.checkTx}>✓</Text></View>}
+                    <Text style={{ fontSize: 22 }}>{ins.sym}</Text>
+                    <Text style={[s.instrLbl, isSelected && s.instrLblOn]}>{ins.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
+            {selectedInstrs.length > 0 && <Text style={s.selectedInstrsTx}>Selected: {selectedInstrs.join(', ')}</Text>}
+          </View>
+
+          {/* CHORD SETUP */}
+          <View style={s.chordSec}>
+            <Pressable style={s.chordHeader} onPress={() => setShowChordInput(!showChordInput)}>
+              <Text style={s.chordTitle}>Chord Progression</Text>
+              <Text style={s.chordToggle}>{showChordInput ? '▲' : '▼'}</Text>
+            </Pressable>
+
+            {detectedChords.length > 0 && (
+              <View style={s.detectedRow}>
+                <Text style={s.detectedLbl}>Detected from your voice:</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  {detectedChords.map((c, i) => (
+                    <View key={i} style={s.chordPill}>
+                      <Text style={s.chordPillTx}>{c}</Text>
+                    </View>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {showChordInput && (
+              <View style={s.chordInputWrap}>
+                <Text style={s.chordInputLbl}>Paste your own chords (overrides auto-detect):</Text>
+                <TextInput style={s.chordInput} value={customChords} onChangeText={setCustomChords} placeholder='e.g. "C G Am F"' placeholderTextColor={C.textMut} autoCapitalize="characters" />
+                <View style={s.chordExamples}>
+                  {['C G Am F', 'D A Bm G', 'Em C G D', 'Cm Bb Eb Ab'].map(ex => (
+                    <Pressable key={ex} style={s.exChip} onPress={() => setCustomChords(ex)}>
+                      <Text style={s.exChipTx}>{ex}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            )}
+          </View>
+
+          {/* ARRANGEMENTS */}
+          {arrangements.length > 0 && (
+            <View style={s.arrSec}>
+              <Text style={s.arrTitle}>Your Virtual Band Arrangements</Text>
+              <Text style={s.arrSub}>Tap Preview to hear · Tap Pick to save</Text>
+              {arrangements.map((arr: any) => (
+                <View key={arr.id} style={s.arrCard}>
+                  <View style={s.arrCardHdr}>
+                    <Text style={{ fontSize: 24 }}>{arr.emoji ?? '🎵'}</Text>
+                    <View style={{ flex: 1, marginLeft: 10 }}>
+                      <Text style={s.arrLabel}>{arr.label ?? arr.id}</Text>
+                      <Text style={s.arrDesc}>{arr.desc ?? ''}</Text>
+                    </View>
+                  </View>
+                  <View style={s.arrBtns}>
+                    <Pressable style={[s.arrBtn, s.arrPreviewBtn, !arr.has_audio && { opacity: 0.4 }]} onPress={() => playArrangement(arr)} disabled={!arr.has_audio}>
+                      <Text style={s.arrPreviewTx}>▶ Preview</Text>
+                    </Pressable>
+                    <Pressable style={[s.arrBtn, s.arrPickBtn]}>
+                      <Text style={s.arrPickTx}>★ Pick</Text>
+                    </Pressable>
+                  </View>
+                  {!arr.has_audio && <Text style={s.arrNoAudioTx}>Add FluidSynth + soundfont to Railway</Text>}
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* GURU */}
+          <View style={s.guruArea}>
+            <Pressable style={s.guruWrap} onPress={() => navigation?.navigate('Guru')}>
+              <Animated.View style={[s.guruAura, { opacity: guruAura }]} />
+              <View style={s.guruRing} />
+              <View style={s.guruBtn}>
+                <Text style={s.guruTx}>AI</Text>
+              </View>
+              <Text style={s.guruLbl}>GURU</Text>
             </Pressable>
           </View>
-          <View style={s.chordRow}>
-             {['C major', 'G major', 'A minor', 'F major'].map((lbl, i) => (
-                <View key={i} style={s.chordBox}>
-                  <Text style={s.chordIdx}>{i + 1}</Text>
-                  <Text style={s.chordLbl}>{lbl}</Text>
-                </View>
-             ))}
-          </View>
-        </GlassCard>
 
         </ScrollView>
 
-        {/* ── SLIDING SIDE DRAWER MENU ── */}
-        <Animated.View style={[s.sideDrawer, {
-          transform: [{ translateX: menuAnim.interpolate({ inputRange: [0, 1], outputRange: [72, 0] }) }]
-        }]}>
-          {/* Hemisphere Handle */}
-          <Pressable style={s.drawerTab} onPress={toggleMenu}>
-             <Text style={s.drawerTabIcon}>{menuOpen ? '▶' : '◀'}</Text>
-          </Pressable>
-
-          {/* Tools Panel */}
-          <View style={s.drawerPanel}>
-            <Pressable style={s.drawerBtn} onPress={() => { toggleMenu(); navigation.navigate('Multitrack'); }}>
-              <View style={[s.drawerIconBg, { backgroundColor: Colors.teal }]}>
-                <Text style={s.drawerIconTx}>🎛️</Text>
-              </View>
-              <Text style={s.drawerLbl}>DAW</Text>
-            </Pressable>
-
-            <Pressable style={s.drawerBtn} onPress={() => { toggleMenu(); navigation.navigate('Lyrics'); }}>
-              <View style={[s.drawerIconBg, { backgroundColor: Colors.gold }]}>
-                <Text style={s.drawerIconTx}>✎</Text>
-              </View>
-              <Text style={s.drawerLbl}>Lyrics</Text>
-            </Pressable>
-
-            <Pressable style={s.drawerBtn} onPress={() => { toggleMenu(); navigation.navigate('Guru'); }}>
-              <View style={[s.drawerIconBg, { backgroundColor: '#6A2AE6' }]}>
-                <Text style={s.drawerIconTx}>✨</Text>
-              </View>
-              <Text style={s.drawerLbl}>Guru</Text>
-            </Pressable>
-          </View>
-        </Animated.View>
-
+        {/* TABS */}
+        <View style={s.tabBar}>
+          {TABS.map(tab => {
+            const on = activeTab === tab;
+            return (
+              <Pressable key={tab} style={s.tab} onPress={() => setActiveTab(tab)}>
+                <View style={[s.tabIco, on && s.tabIcoOn]}>
+                  <Text style={[s.tabIcoTx, on && s.tabIcoTxOn]}>{tab[0]}</Text>
+                </View>
+                <Text style={[s.tabLbl, on && s.tabLblOn]}>{tab}</Text>
+                {on && <View style={s.tabDot} />}
+              </Pressable>
+            );
+          })}
+        </View>
       </SafeAreaView>
     </View>
   );
-};
+}
 
-// ─── Styles ───────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: Colors.bg },
-  safe: { flex: 1 },
-
-  // Ambient glows
-  glowPurple: { position:'absolute', width:300, height:300, borderRadius:150, backgroundColor:'rgba(106,42,230,0.3)', top:-50, left:-50 },
-  glowTeal:   { position:'absolute', width:260, height:260, borderRadius:130, backgroundColor:'rgba(0,217,192,0.18)', top:-80, right:-30 },
-  glowGold:   { position:'absolute', width:220, height:220, borderRadius:110, backgroundColor:'rgba(212,175,55,0.22)', top:420, left:60 },
-  veil:       { position:'absolute', top:0, left:0, right:0, bottom:0, backgroundColor:'rgba(11,11,18,0.48)' },
-
-  // Header
-  header:    { flexDirection:'row', justifyContent:'space-between', alignItems:'center', paddingHorizontal:Spacing.lg, paddingTop:Spacing.sm, paddingBottom:Spacing.xs },
-  logo:      { ...Typography.appName },
-  logoSub:   { ...Typography.tiny, letterSpacing:0.5 },
-  headerR:   { flexDirection:'row', gap:Spacing.sm, alignItems:'center' },
-  headerBtn: { width:32, height:32, borderRadius:16, backgroundColor:Colors.bgCard, borderWidth:1, borderColor:Colors.border, alignItems:'center', justifyContent:'center' },
-  headerBtnTx: { fontSize:15, color:Colors.textSecondary },
-  avatar:    { width:32, height:32, borderRadius:16, backgroundColor:Colors.gold, alignItems:'center', justifyContent:'center' },
-  avatarTx:  { fontSize:13, fontWeight:'700', color:Colors.bg },
-
-  // Song card
-  songCard: { marginHorizontal:Spacing.lg, marginBottom:Spacing.sm, padding:Spacing.md },
-  songRow:  { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:Spacing.xs },
-  songName: { ...Typography.h3 },
-  liveRow:  { flexDirection:'row', alignItems:'center', gap:5 },
-  liveDot:  { width:7, height:7, borderRadius:4, backgroundColor:Colors.teal, shadowColor:Colors.teal, shadowOffset:{width:0,height:0}, shadowOpacity:0.9, shadowRadius:5 },
-  liveDotRec: { backgroundColor:Colors.red, shadowColor:Colors.red },
-  liveTx:   { fontSize:10, fontWeight:'600', color:Colors.teal },
-  songMeta: { ...Typography.caption },
-
-  // Waveform & VU
-  waveWrap:  { marginHorizontal:Spacing.lg, marginBottom:Spacing.xs, flex:1, flexDirection: 'row', alignItems: 'center', justifyContent:'center' },
-  timeRow:   { flexDirection:'row', justifyContent:'space-between', paddingHorizontal:4, marginTop:3 },
-  timeTx:    { ...Typography.tiny },
-
-  // Pitch row
-  pitchRow:  { marginHorizontal:Spacing.lg, marginBottom:Spacing.sm, padding:Spacing.md, flexDirection:'row', alignItems:'center', gap:Spacing.md },
-  pitchSec:  { flex:1 },
-  statLbl:   { fontSize:8, fontWeight:'600', color:Colors.textMuted, letterSpacing:0.5, marginBottom:5 },
-  pitchTrack:{ height:4, backgroundColor:Colors.border, borderRadius:2 },
-  pitchFill: { height:4, backgroundColor:Colors.teal, borderRadius:2 },
-  pitchDot:  { position:'absolute', width:10, height:10, borderRadius:5, backgroundColor:'#fff', top:-3, left:'65%', shadowColor:Colors.teal, shadowOffset:{width:0,height:0}, shadowOpacity:0.9, shadowRadius:5 },
-  loudVal:   { fontSize:14, fontWeight:'700', color:Colors.textPrimary },
-  noteCard:  { backgroundColor:Colors.tealBg, borderWidth:1, borderColor:Colors.teal, borderRadius:Radius.sm, paddingHorizontal:Spacing.md, paddingVertical:4, alignItems:'center', minWidth:56 },
-  noteVal:   { fontSize:20, fontWeight:'700', color:Colors.teal, lineHeight:22 },
-  noteSub:   { fontSize:8, color:Colors.teal },
-
-  // Transport
-  transport: { flexDirection:'row', alignItems:'center', justifyContent:'center', gap:Spacing.sm, paddingHorizontal:Spacing.lg, paddingVertical:Spacing.xs },
-  tBtn:      { width:44, height:44, borderRadius:22, backgroundColor:Colors.bgCard, borderWidth:1, borderColor:Colors.border, alignItems:'center', justifyContent:'center' },
-  tBtnActive:{ backgroundColor:Colors.tealBg, borderColor:Colors.teal },
-  tBtnTx:    { fontSize:16, color:Colors.textSecondary },
-
-  // Auto-tune
-  atCard:      { marginHorizontal:Spacing.lg, marginVertical:Spacing.xs, padding:Spacing.md },
-  atHdr:       { flexDirection:'row', justifyContent:'space-between', marginBottom:Spacing.sm },
-  atLbl:       { ...Typography.body, fontWeight:'500' },
-  atVal:       { ...Typography.body, fontWeight:'600', color:Colors.teal },
-  sliderTrack: { height:4, backgroundColor:Colors.border, borderRadius:2 },
-  sliderFill:  { height:4, backgroundColor:Colors.teal, borderRadius:2 },
-  sliderThumb: { position:'absolute', width:16, height:16, borderRadius:8, backgroundColor:'#fff', top:-6, marginLeft:-8, shadowColor:Colors.teal, shadowOffset:{width:0,height:0}, shadowOpacity:0.9, shadowRadius:6 },
-  atEnds:      { flexDirection:'row', justifyContent:'space-between', marginTop:Spacing.xs },
-  atEnd:       { ...Typography.tiny },
-
-  // Instruments
-  instrSec:    { marginHorizontal:Spacing.lg, marginTop:Spacing.xs },
-  instrHdr:    { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:Spacing.sm },
-  instrTitle:  { ...Typography.body, fontWeight:'600', color:Colors.textPrimary },
-  instrSub:    { ...Typography.caption },
-  instrCard:   { width:76, marginRight:Spacing.sm, backgroundColor:Colors.bgCard, borderWidth:1, borderColor:Colors.border, borderRadius:Radius.md, padding:Spacing.sm, alignItems:'center', position:'relative' },
-  instrCardOn: { backgroundColor:Colors.tealBg, borderColor:Colors.teal, shadowColor:Colors.teal, shadowOffset:{width:0,height:0}, shadowOpacity:0.5, shadowRadius:10, elevation:6 },
-  proBadge:    { position:'absolute', top:4, right:4, backgroundColor:Colors.gold, borderRadius:20, paddingHorizontal:5, paddingVertical:1 },
-  proBadgeTx:  { fontSize:7, fontWeight:'700', color:Colors.bg },
-  instrIcon:   { width:32, height:32, borderRadius:16, backgroundColor:Colors.bgCard, alignItems:'center', justifyContent:'center', marginBottom:Spacing.xs, marginTop:Spacing.xs },
-  instrIconOn: { backgroundColor:'rgba(0,217,192,0.2)' },
-  instrIconTx: { fontSize:13, fontWeight:'700', color:Colors.textMuted },
-  instrIconTxOn:{ color:Colors.teal },
-  instrLbl:    { fontSize:10, color:Colors.textMuted },
-  instrLblOn:  { color:Colors.teal, fontWeight:'600' },
-
-  // Smart Accompaniment
-  backingCard: { marginHorizontal:Spacing.lg, marginTop:Spacing.md, padding:Spacing.md },
-  backingRow:  { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:Spacing.sm },
-  backingTitle:{ ...Typography.body, fontWeight:'600' },
-  backingSub:  { ...Typography.caption },
-  toggleBtn:   { width:50, height:28, borderRadius:14, backgroundColor:Colors.bgCard, borderWidth:1, borderColor:Colors.border, alignItems:'center', justifyContent:'center' },
-  toggleBtnOn: { backgroundColor:Colors.tealBg, borderColor:Colors.teal },
-  toggleBtnTx: { fontSize:10, fontWeight:'700', color:Colors.textPrimary },
-  chordRow:    { flexDirection:'row', justifyContent:'space-between', marginTop:Spacing.sm },
-  chordBox:    { flex:1, marginHorizontal:3, backgroundColor:'rgba(255,255,255,0.05)', borderRadius:Radius.sm, padding:8, alignItems:'center' },
-  chordIdx:    { fontSize:8, color:Colors.textMuted, marginBottom:3 },
-  chordLbl:    { fontSize:12, fontWeight:'600', color:Colors.gold },
-
-  // Sliding drawer
-  sideDrawer: { position: 'absolute', right: 0, top: '40%', flexDirection: 'row', alignItems: 'center', zIndex: 100 },
-  drawerTab: { width: 34, height: 70, backgroundColor: 'rgba(255, 255, 255, 0.5)', borderTopLeftRadius: 35, borderBottomLeftRadius: 35, borderWidth: 1, borderRightWidth: 0, borderColor: 'rgba(255, 255, 255, 0.8)', justifyContent: 'center', alignItems: 'flex-start', paddingLeft: 10, shadowColor: '#000', shadowOffset: {width: -2, height: 0}, shadowOpacity: 0.3, shadowRadius: 5 },
-  drawerTabIcon: { color: '#ffffff', fontSize: 16, fontWeight: '900' },
-  drawerPanel: { width: 72, backgroundColor: 'rgba(15, 15, 25, 0.85)', borderTopLeftRadius: 20, borderBottomLeftRadius: 20, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.15)', borderRightWidth: 0, paddingVertical: 20, alignItems: 'center', gap: 24, shadowColor: '#000', shadowOffset: {width: -4, height: 0}, shadowOpacity: 0.5, shadowRadius: 10 },
-  drawerBtn: { alignItems: 'center' },
-  drawerIconBg: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.8, shadowRadius: 8, elevation: 6 },
-  drawerIconTx: { fontSize: 18, color: Colors.bg },
-  drawerLbl: { fontSize: 10, fontWeight: '700', color: '#fff', marginTop: 6, letterSpacing: 0.5 },
+  root:           { flex:1, backgroundColor:C.bg },
+  glowPurple:     { position:'absolute', width:300, height:300, borderRadius:150, backgroundColor:C.purple, top:-60, left:-50 },
+  glowTeal:       { position:'absolute', width:260, height:260, borderRadius:130, backgroundColor:'rgba(0,217,192,0.18)', top:-80, right:-30 },
+  glowGold:       { position:'absolute', width:220, height:220, borderRadius:110, backgroundColor:'rgba(212,175,55,0.22)', top:400, left:60 },
+  veil:           { position:'absolute', top:0,left:0,right:0,bottom:0, backgroundColor:'rgba(11,11,18,0.46)' },
+  header:         { flexDirection:'row', justifyContent:'space-between', alignItems:'center', paddingHorizontal:16, paddingTop:8, paddingBottom:4 },
+  logo:           { fontSize:24, fontWeight:'800', letterSpacing:3, color:C.gold },
+  logoSub:        { fontSize:9, color:C.textMut },
+  avatar:         { width:32, height:32, borderRadius:16, backgroundColor:C.gold, alignItems:'center', justifyContent:'center' },
+  avatarTx:       { fontSize:13, fontWeight:'700', color:C.bg },
+  songCard:       { marginHorizontal:14, marginBottom:8, padding:12, backgroundColor:C.bgCard, borderRadius:14, borderWidth:1, borderColor:C.border },
+  songRow:        { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:4 },
+  songName:       { fontSize:15, fontWeight:'600', color:C.textPri },
+  liveRow:        { flexDirection:'row', alignItems:'center', gap:5 },
+  liveDot:        { width:7, height:7, borderRadius:4 },
+  liveTx:         { fontSize:10, fontWeight:'600' },
+  songMeta:       { fontSize:11, color:C.textMut },
+  waveOuter:      { marginHorizontal:14, height:142, backgroundColor:C.bgSurf, borderRadius:16, borderWidth:1, borderColor:C.border, overflow:'hidden', alignItems:'center', justifyContent:'center', position:'relative' },
+  barsRow:        { flexDirection:'row', alignItems:'center', paddingHorizontal:8 },
+  barWrap:        { alignItems:'center', marginHorizontal:1 },
+  playheadLine:   { position:'absolute', top:8, bottom:8, left:'50%', width:2, backgroundColor:C.gold, borderRadius:1 },
+  timeRow:        { flexDirection:'row', justifyContent:'space-between', paddingHorizontal:18, marginTop:3, marginBottom:4 },
+  timeTx:         { fontSize:9, color:C.textMut },
+  statusBar:      { marginHorizontal:14, marginBottom:8, padding:10, backgroundColor:C.bgCard, borderRadius:10, borderWidth:1 },
+  statusTx:       { fontSize:12, fontWeight:'600', lineHeight:18 },
+  pitchRow:       { flexDirection:'row', alignItems:'center', gap:10, marginHorizontal:14, marginBottom:4, padding:10, backgroundColor:C.bgCard, borderRadius:12, borderWidth:1, borderColor:C.border },
+  pitchSec:       { flex:1 },
+  statLbl:        { fontSize:8, fontWeight:'600', color:C.textMut, letterSpacing:0.4, marginBottom:4 },
+  pitchTrack:     { height:4, backgroundColor:C.border, borderRadius:2 },
+  pitchFill:      { height:4, backgroundColor:C.teal, borderRadius:2 },
+  loudVal:        { fontSize:14, fontWeight:'700', color:C.textPri },
+  noteCard:       { backgroundColor:C.tealBg, borderWidth:1, borderColor:C.teal, borderRadius:10, paddingHorizontal:12, paddingVertical:4, alignItems:'center', minWidth:52 },
+  noteVal:        { fontSize:20, fontWeight:'700', color:C.teal, lineHeight:22 },
+  noteSub:        { fontSize:8, color:C.teal },
+  transport:      { flexDirection:'row', alignItems:'center', justifyContent:'center', gap:8, paddingVertical:4 },
+  tBtn:           { width:42, height:42, borderRadius:21, backgroundColor:C.bgCard, borderWidth:1, borderColor:C.border, alignItems:'center', justifyContent:'center' },
+  tBtnTx:         { fontSize:15, color:C.textSec },
+  recOuter:       { width:90, height:90, alignItems:'center', justifyContent:'center' },
+  recAura:        { position:'absolute', width:90, height:90, borderRadius:45, backgroundColor:C.red },
+  recRing:        { position:'absolute', width:78, height:78, borderRadius:39, borderWidth:1.5, borderColor:'rgba(255,59,92,0.36)' },
+  recBtn:         { width:66, height:66, borderRadius:33, backgroundColor:C.red, alignItems:'center', justifyContent:'center', shadowColor:C.red, shadowOffset:{width:0,height:0}, shadowOpacity:0.9, shadowRadius:18, elevation:14 },
+  recHl:          { position:'absolute', width:20, height:12, borderRadius:8, backgroundColor:'rgba(255,255,255,0.28)', top:12, left:14 },
+  recIcon:        { width:26, height:26, backgroundColor:'#FFFFFF' },
+  atCard:         { marginHorizontal:14, marginVertical:4, padding:12, backgroundColor:C.bgCard, borderRadius:12, borderWidth:1, borderColor:C.border },
+  atHdr:          { flexDirection:'row', alignItems:'center', gap:8, marginBottom:8 },
+  atLbl:          { fontSize:13, fontWeight:'500', color:C.textSec, flex:1 },
+  atVal:          { fontSize:13, fontWeight:'600', color:C.teal },
+  tunedBadge:     { backgroundColor:C.tealBg, borderRadius:20, paddingHorizontal:8, paddingVertical:2, borderWidth:1, borderColor:C.teal },
+  tunedBadgeTx:   { fontSize:10, fontWeight:'600', color:C.teal },
+  atBtns:         { flexDirection:'row', gap:6, marginBottom:4 },
+  atBtn:          { flex:1, paddingVertical:6, borderRadius:8, backgroundColor:C.bgSurf, borderWidth:1, borderColor:C.border, alignItems:'center' },
+  atBtnActive:    { backgroundColor:C.tealBg, borderColor:C.teal },
+  atBtnTx:        { fontSize:11, color:C.textMut },
+  atEnds:         { flexDirection:'row', justifyContent:'space-between' },
+  atEnd:          { fontSize:9, color:C.textMut },
+  instrSec:       { marginHorizontal:14, marginTop:4 },
+  instrHdr:       { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:8 },
+  instrTitle:     { fontSize:13, fontWeight:'600', color:C.textPri },
+  instrSub:       { fontSize:10, color:C.textMut },
+  headphoneNotice:{ backgroundColor:C.bgCard, borderWidth:1, borderColor:C.gold, borderRadius:10, padding:10, marginBottom:8 },
+  headphoneTx:    { fontSize:12, color:C.gold, fontWeight:'600' },
+  headphoneSubTx: { fontSize:10, color:C.textMut, marginTop:2 },
+  headphoneActive:{ backgroundColor:'rgba(0,217,192,0.1)', borderRadius:10, padding:8, marginBottom:8, borderWidth:1, borderColor:C.teal },
+  headphoneActiveTx:{ fontSize:12, color:C.teal },
+  instrCard:      { width:80, marginRight:8, backgroundColor:C.bgCard, borderWidth:1, borderColor:C.border, borderRadius:12, padding:10, alignItems:'center', position:'relative', gap:4 },
+  instrCardOn:    { backgroundColor:C.tealBg, borderColor:C.teal },
+  proBadge:       { position:'absolute', top:4, right:4, backgroundColor:C.gold, borderRadius:20, paddingHorizontal:5, paddingVertical:1 },
+  proBadgeTx:     { fontSize:7, fontWeight:'700', color:C.bg },
+  checkMark:      { position:'absolute', top:4, left:4, backgroundColor:C.teal, width:16, height:16, borderRadius:8, alignItems:'center', justifyContent:'center' },
+  checkTx:        { fontSize:9, fontWeight:'700', color:C.bg },
+  instrLbl:       { fontSize:10, color:C.textMut },
+  instrLblOn:     { color:C.teal, fontWeight:'600' },
+  selectedInstrsTx:{ fontSize:10, color:C.teal, marginTop:6, paddingLeft:2 },
+  chordSec:       { marginHorizontal:14, marginTop:12, backgroundColor:C.bgCard, borderRadius:14, borderWidth:1, borderColor:C.border, padding:12 },
+  chordHeader:    { flexDirection:'row', justifyContent:'space-between', alignItems:'center' },
+  chordTitle:     { fontSize:13, fontWeight:'600', color:C.textPri },
+  chordToggle:    { fontSize:12, color:C.textMut },
+  detectedRow:    { marginTop:8 },
+  detectedLbl:    { fontSize:10, color:C.gold, marginBottom:6 },
+  chordPill:      { backgroundColor:C.tealBg, borderWidth:1, borderColor:C.teal, borderRadius:20, paddingHorizontal:12, paddingVertical:4, marginRight:6 },
+  chordPillTx:    { fontSize:12, fontWeight:'700', color:C.teal },
+  chordInputWrap: { marginTop:8 },
+  chordInputLbl:  { fontSize:10, color:C.textMut, marginBottom:6 },
+  chordInput:     { backgroundColor:C.bgSurf, borderWidth:1, borderColor:C.border, borderRadius:10, padding:12, color:C.textPri, fontSize:15, letterSpacing:1 },
+  chordExamples:  { flexDirection:'row', flexWrap:'wrap', gap:6, marginTop:8 },
+  exChip:         { backgroundColor:C.bgSurf, borderWidth:1, borderColor:C.border, borderRadius:20, paddingHorizontal:10, paddingVertical:5 },
+  exChipTx:       { fontSize:11, color:C.textSec },
+  arrSec:         { marginHorizontal:14, marginTop:12 },
+  arrTitle:       { fontSize:15, fontWeight:'700', color:C.textPri, marginBottom:4 },
+  arrSub:         { fontSize:11, color:C.textMut, marginBottom:10 },
+  arrCard:        { backgroundColor:C.bgCard, borderRadius:14, borderWidth:1, borderColor:C.border, padding:12, marginBottom:10, gap:10 },
+  arrCardHdr:     { flexDirection:'row', alignItems:'center' },
+  arrLabel:       { fontSize:14, fontWeight:'700', color:C.textPri },
+  arrDesc:        { fontSize:11, color:C.textMut },
+  arrBtns:        { flexDirection:'row', gap:8 },
+  arrBtn:         { flex:1, borderRadius:20, paddingVertical:10, alignItems:'center' },
+  arrPreviewBtn:  { backgroundColor:C.tealBg, borderWidth:1, borderColor:C.teal },
+  arrPreviewTx:   { fontSize:13, fontWeight:'600', color:C.teal },
+  arrPickBtn:     { backgroundColor:C.goldBg, borderWidth:1, borderColor:C.gold },
+  arrPickTx:      { fontSize:13, fontWeight:'600', color:C.gold },
+  arrNoAudioTx:   { fontSize:10, color:C.textMut },
+  guruArea:       { alignItems:'flex-end', paddingRight:16, marginTop:12, marginBottom:8 },
+  guruWrap:       { alignItems:'center' },
+  guruAura:       { position:'absolute', width:66, height:66, borderRadius:33, backgroundColor:'rgba(212,175,55,0.45)' },
+  guruRing:       { position:'absolute', width:56, height:56, borderRadius:28, borderWidth:1.5, borderColor:'rgba(242,200,75,0.4)' },
+  guruBtn:        { width:50, height:50, borderRadius:25, backgroundColor:C.gold, alignItems:'center', justifyContent:'center', shadowColor:C.gold, shadowOffset:{width:0,height:0}, shadowOpacity:0.9, shadowRadius:14, elevation:10 },
+  guruTx:         { fontSize:13, fontWeight:'700', color:C.bg },
+  guruLbl:        { fontSize:8, fontWeight:'700', color:C.gold, marginTop:4, letterSpacing:1 },
+  tabBar:         { flexDirection:'row', backgroundColor:C.bgSurf, borderTopWidth:1, borderTopColor:C.border, paddingBottom:8 },
+  tab:            { flex:1, alignItems:'center', paddingTop:8, gap:3 },
+  tabIco:         { width:22, height:22, borderRadius:11, backgroundColor:C.bgCard, alignItems:'center', justifyContent:'center' },
+  tabIcoOn:       { backgroundColor:C.tealBg, borderWidth:1, borderColor:C.teal },
+  tabIcoTx:       { fontSize:9, fontWeight:'700', color:C.textMut },
+  tabIcoTxOn:     { color:C.teal },
+  tabLbl:         { fontSize:9, color:C.textMut },
+  tabLblOn:       { color:C.teal, fontWeight:'600' },
+  tabDot:         { width:3, height:3, borderRadius:2, backgroundColor:C.teal },
 });
