@@ -20,8 +20,8 @@ import { Audio } from 'expo-av';
 type InstrKey = 'keys' | 'guitar' | 'tabla' | 'flute' | 'sitar' | 'strings';
 
 // Map instrument key → require() path
-// When files don't exist yet we use null (silent mode).
-// Uncomment the require() statements once you have downloaded the MP3s into the folder.
+// All sounds are MP3 files for universal compatibility
+// Fallback to null (silent mode) if files don't exist
 const SOUND_MAP: Record<InstrKey, any | null> = {
   keys:        require('../../assets/sounds/keys.mp3'),
   guitar:      require('../../assets/sounds/guitar.mp3'),
