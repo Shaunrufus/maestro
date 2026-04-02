@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y \
     ffmpeg \
     fluidsynth \
     fluid-soundfont-gm \
+    praat \
     gcc \
     g++ \
     && rm -rf /var/lib/apt/lists/*

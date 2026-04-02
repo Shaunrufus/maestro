@@ -1,124 +1,220 @@
 # backend/app/services/autotune.py
-# MAESTRO Auto-Tune Pipeline
-# Uses CREPE (pitch detection) + librosa (pitch shifting)
+# MAESTRO — Production-Grade Auto-Tune Engine
 #
-# Install:
-#   pip install crepe librosa scipy numpy soundfile
+# Algorithm stack (same as commercial auto-tune tools):
+#   1. pYIN  — probabilistic YIN pitch detection (most accurate for vocals)
+#   2. Chromatic scale snapping — nearest scale note with configurable strength
+#   3. TD-PSOLA via `psola` package (wraps Praat) — formant-preserving pitch shift
+#      This prevents the "Mickey Mouse" effect that plagues naive pitch shifting.
+#   4. Smoothing — median filter on pitch contour to remove micro-jitter
+#   5. Strength blend — 0% = dry original, 100% = fully corrected
 
+import base64
 import io
-import tempfile
 import os
-import numpy  as np
-import librosa
-import soundfile as sf
+from typing import Optional
 
-# Note: CREPE is heavy (~50MB). For Vercel, use Railway or a GPU instance.
-# import crepe  # uncomment when deployed with enough memory
+import numpy as np
 
-MUSICAL_SCALES = {
-    "major":      [0, 2, 4, 5, 7, 9, 11],
-    "minor":      [0, 2, 3, 5, 7, 8, 10],
-    "chromatic":  list(range(12)),
-    "pentatonic": [0, 2, 4, 7, 9],
+try:
+    import librosa
+    import soundfile as sf
+    import psola
+    from scipy.signal import medfilt
+    AUTOTUNE_OK = True
+except ImportError as e:
+    print(f"[AutoTune] Missing package: {e}. Running in simulation mode.")
+    AUTOTUNE_OK = False
+
+SEMITONES_IN_OCTAVE = 12
+
+SCALE_ALIASES = {
+    'C major':   'C:maj',   'C minor':   'C:min',
+    'D major':   'D:maj',   'D minor':   'D:min',
+    'E major':   'E:maj',   'E minor':   'E:min',
+    'F major':   'F:maj',   'F minor':   'F:min',
+    'G major':   'G:maj',   'G minor':   'G:min',
+    'A major':   'A:maj',   'A minor':   'A:min',
+    'B major':   'B:maj',   'B minor':   'B:min',
+    'C# major':  'C#:maj',  'C# minor':  'C#:min',
+    'D# major':  'D#:maj',  'Eb major':  'Eb:maj',
+    'Chromatic': None,
 }
 
-NOTE_OFFSETS = {
-    "C":0,"C#":1,"Db":1,"D":2,"D#":3,"Eb":3,
-    "E":4,"F":5,"F#":6,"Gb":6,"G":7,"G#":8,
-    "Ab":8,"A":9,"A#":10,"Bb":10,"B":11,
-}
 
-def hz_to_nearest_semitone_in_scale(hz: float, key: str, scale: str) -> float:
-    """Snap a frequency (Hz) to the nearest note in the given key/scale."""
-    if hz <= 0:
-        return hz
+def _snap_to_nearest_scale_note(
+    pitch_hz:   float,
+    scale:      Optional[str],
+    strength:   float = 1.0,
+) -> float:
+    if np.isnan(pitch_hz) or pitch_hz <= 0:
+        return pitch_hz
 
-    # Convert Hz → MIDI note number
-    midi = 12 * np.log2(hz / 440.0) + 69
+    if scale is None:
+        midi = librosa.hz_to_midi(pitch_hz)
+        snapped_midi = round(midi)
+        target_hz = librosa.midi_to_hz(snapped_midi)
+    else:
+        degrees = librosa.key_to_degrees(scale)
+        degrees = np.concatenate([degrees, [degrees[0] + SEMITONES_IN_OCTAVE]])
+        midi = librosa.hz_to_midi(pitch_hz)
+        degree = midi % SEMITONES_IN_OCTAVE
+        closest_idx = np.argmin(np.abs(degrees - degree))
+        correction  = degree - degrees[closest_idx]
+        target_midi = midi - correction
+        target_hz   = librosa.midi_to_hz(target_midi)
 
-    root   = NOTE_OFFSETS.get(key, 0)
-    steps  = MUSICAL_SCALES.get(scale, MUSICAL_SCALES["chromatic"])
-    # All MIDI notes in scale (across octaves 0–10)
-    valid  = [root + s + 12 * o for o in range(11) for s in steps]
+    blended_hz = pitch_hz * (1 - strength) + target_hz * strength
+    return blended_hz
 
-    nearest_midi = min(valid, key=lambda n: abs(n - midi))
-    return 440.0 * (2.0 ** ((nearest_midi - 69) / 12.0))
+
+def _correct_pitch_contour(
+    f0:       np.ndarray,
+    scale:    Optional[str],
+    strength: float,
+    smooth:   bool = True,
+) -> np.ndarray:
+    corrected = np.zeros_like(f0)
+    for i, pitch in enumerate(f0):
+        if np.isnan(pitch):
+            corrected[i] = pitch
+        else:
+            corrected[i] = _snap_to_nearest_scale_note(pitch, scale, strength)
+
+    if smooth:
+        nan_mask    = np.isnan(corrected)
+        temp        = np.where(nan_mask, 0.0, corrected)
+        smoothed    = medfilt(temp, kernel_size=5)
+        corrected   = np.where(nan_mask, np.nan, smoothed)
+
+    return corrected
 
 
 async def apply_autotune_pipeline(
     audio_bytes: bytes,
-    strength:    float = 0.78,  # 0.0 = no correction, 1.0 = full
-    key:         str   = "C",
-    scale:       str   = "major",
+    strength:    float = 0.78,
+    key:         str   = 'C',
+    scale_type:  str   = 'major',
 ) -> dict:
-    """
-    Full auto-tune pipeline:
-    1. Load WAV bytes
-    2. Detect pitch per frame (CREPE / fallback: pyin)
-    3. Calculate target pitch for each frame
-    4. Apply pitch shift frame-by-frame using librosa
-    5. Return corrected audio as base64 + metadata
-    """
-    import base64
+    if not AUTOTUNE_OK:
+        return _simulation_response(audio_bytes)
 
-    # Load audio from bytes
-    with io.BytesIO(audio_bytes) as buf:
-        y, sr = librosa.load(buf, sr=44100, mono=True)
+    try:
+        with io.BytesIO(audio_bytes) as buf:
+            y, sr = librosa.load(buf, sr=44100, mono=True)
 
-    duration_sec = len(y) / sr
+        if len(y) < sr * 0.5:
+            return _simulation_response(audio_bytes)
 
-    # ── Pitch detection (pyin — no GPU needed) ──
-    f0, voiced_flag, voiced_probs = librosa.pyin(
-        y,
-        fmin = librosa.note_to_hz("C2"),
-        fmax = librosa.note_to_hz("C7"),
-        sr   = sr,
-    )
+        scale_key = f"{key} {scale_type}"
+        librosa_scale = SCALE_ALIASES.get(scale_key, f"{key}:maj")
+        if scale_type.lower() in ('minor', 'min'):
+            librosa_scale = f"{key}:min"
 
-    # ── Pitch correction per frame ──
-    hop_length   = 512
-    frame_length = 2048
-    shifts_hz    = []
-    corrections  = []
+        fmin = librosa.note_to_hz('C2')
+        fmax = librosa.note_to_hz('C6')
 
-    # Process in chunks for memory efficiency
-    y_corrected  = y.copy()
+        f0, voiced_flag, voiced_probs = librosa.pyin(
+            y,
+            fmin=fmin,
+            fmax=fmax,
+            sr=sr,
+            frame_length=2048,
+            hop_length=512,
+        )
 
-    for i, (freq, voiced) in enumerate(zip(f0, voiced_flag)):
-        if not voiced or freq is None or np.isnan(freq):
-            shifts_hz.append(0.0)
-            corrections.append(0.0)
-            continue
+        voiced_pct = float(np.mean(voiced_flag) * 100)
 
-        target_freq   = hz_to_nearest_semitone_in_scale(freq, key, scale)
-        ratio         = target_freq / freq if freq > 0 else 1.0
-        semitones_raw = 12 * np.log2(ratio)
-        semitones     = semitones_raw * strength  # blend based on strength
+        if voiced_pct < 5:
+            return _wav_response(y, sr, 0.0, 'no_pitch_detected', voiced_pct)
 
-        shifts_hz.append(semitones)
-        corrections.append(abs(semitones_raw))
+        corrected_f0 = _correct_pitch_contour(f0, librosa_scale, strength)
 
-    # Apply global pitch shift (simplified — frame-level shifting is Phase 3)
-    avg_shift = float(np.nanmean([s for s in shifts_hz if s != 0]) or 0)
-    if abs(avg_shift) > 0.01:
-        y_corrected = librosa.effects.pitch_shift(y, sr=sr, n_steps=avg_shift)
+        valid_orig = f0[voiced_flag & ~np.isnan(f0)]
+        valid_corr = corrected_f0[voiced_flag & ~np.isnan(corrected_f0)]
+        if len(valid_orig) > 0 and len(valid_corr) > 0:
+            orig_midi = librosa.hz_to_midi(valid_orig[valid_orig > 0])
+            corr_midi = librosa.hz_to_midi(valid_corr[valid_corr > 0])
+            min_len   = min(len(orig_midi), len(corr_midi))
+            avg_correction = float(np.mean(np.abs(corr_midi[:min_len] - orig_midi[:min_len])))
+        else:
+            avg_correction = 0.0
 
-    # ── Encode output ──
-    output_buf = io.BytesIO()
-    sf.write(output_buf, y_corrected, sr, format="WAV", subtype="PCM_16")
-    output_bytes  = output_buf.getvalue()
-    encoded_audio = base64.b64encode(output_bytes).decode("utf-8")
+        try:
+            tuned_audio = psola.vocode(
+                y,
+                sample_rate=int(sr),
+                target_pitch=corrected_f0,
+                fmin=fmin,
+                fmax=fmax,
+            )
+            mode = 'psola'
+        except Exception as psola_err:
+            print(f"[AutoTune] PSOLA failed ({psola_err}), using librosa fallback")
+            tuned_audio = _librosa_pitch_shift_fallback(y, sr, f0, corrected_f0, voiced_flag)
+            mode = 'librosa_fallback'
 
-    avg_correction = float(np.nanmean(corrections)) if corrections else 0.0
+        blended = (1 - strength) * y + strength * tuned_audio
 
+        peak = np.max(np.abs(blended))
+        if peak > 0.98:
+            blended = blended * (0.98 / peak)
+
+        return _wav_response(blended, sr, avg_correction, mode, voiced_pct)
+
+    except Exception as e:
+        print(f"[AutoTune] Pipeline error: {e}")
+        return _simulation_response(audio_bytes)
+
+
+def _librosa_pitch_shift_fallback(
+    y:            np.ndarray,
+    sr:           int,
+    orig_f0:      np.ndarray,
+    corrected_f0: np.ndarray,
+    voiced_flag:  np.ndarray,
+) -> np.ndarray:
+    valid_orig = orig_f0[voiced_flag & ~np.isnan(orig_f0) & (orig_f0 > 0)]
+    valid_corr = corrected_f0[voiced_flag & ~np.isnan(corrected_f0) & (corrected_f0 > 0)]
+
+    if len(valid_orig) == 0 or len(valid_corr) == 0:
+        return y
+
+    avg_orig_midi = float(np.mean(librosa.hz_to_midi(valid_orig)))
+    avg_corr_midi = float(np.mean(librosa.hz_to_midi(valid_corr)))
+    n_steps       = avg_corr_midi - avg_orig_midi
+
+    if abs(n_steps) < 0.01:
+        return y
+
+    return librosa.effects.pitch_shift(y, sr=sr, n_steps=n_steps)
+
+
+def _wav_response(
+    audio:          np.ndarray,
+    sr:             int,
+    avg_correction: float,
+    mode:           str,
+    voiced_pct:     float,
+) -> dict:
+    buf = io.BytesIO()
+    sf.write(buf, audio, sr, format='WAV', subtype='PCM_16')
+    audio_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
     return {
-        "audio_base64":  encoded_audio,
-        "mime_type":     "audio/wav",
-        "duration_sec":  round(duration_sec, 2),
-        "avg_shift":     round(avg_shift, 3),
-        "avg_correction": round(avg_correction * 100, 1),  # percentage
-        "frames_voiced": int(np.sum(voiced_flag)),
-        "key":           key,
-        "scale":         scale,
-        "strength":      strength,
+        'audio_base64':   audio_b64,
+        'avg_correction': round(avg_correction, 2),
+        'mode':           mode,
+        'voiced_pct':     round(voiced_pct, 1),
+        'sample_rate':    sr,
+    }
+
+
+def _simulation_response(audio_bytes: bytes) -> dict:
+    audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+    return {
+        'audio_base64':   audio_b64,
+        'avg_correction': 0.0,
+        'mode':           'simulation',
+        'voiced_pct':     0.0,
+        'note':           'Install psola + parselmouth for real pitch correction',
     }
