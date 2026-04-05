@@ -1,14 +1,14 @@
 import React, {useEffect, useRef} from 'react';
 import {Animated, Easing, StyleSheet, Text, View} from 'react-native';
 export type LoadingStage = 'autotune' | 'analyzing' | 'generating' | 'saving' | 'mixing';
-const STAGE_CONFIG = {
+const STAGE_CONFIG: Record<LoadingStage, {color: string; label: string; sublabel: string}> = {
   autotune:{color:'#00D9C0',label:'Tuning',sublabel:'Pitch correction'},
   analyzing:{color:'#D4AF37',label:'Listening',sublabel:'Reading your song'},
   generating:{color:'#A855F7',label:'Creating',sublabel:'Building your band'},
   saving:{color:'#3B82F6',label:'Saving',sublabel:'To cloud'},
   mixing:{color:'#FF3B5C',label:'Mixing',sublabel:'Final blend'},
 };
-export const StudioLoadingOverlay = ({stage, visible}) => {
+export const StudioLoadingOverlay = ({stage, visible}: {stage: LoadingStage, visible: boolean}) => {
   const cfg = STAGE_CONFIG[stage] ?? STAGE_CONFIG.analyzing;
   const ring1 = useRef(new Animated.Value(0)).current;
   const ring2 = useRef(new Animated.Value(0)).current;
@@ -17,7 +17,7 @@ export const StudioLoadingOverlay = ({stage, visible}) => {
   const bars = useRef(Array.from({length:5},()=>new Animated.Value(0.3))).current;
   useEffect(() => {
     if (!visible) return;
-    const ringAnim = (ring, delay) => Animated.loop(Animated.sequence([
+    const ringAnim = (ring: Animated.Value, delay: number) => Animated.loop(Animated.sequence([
       Animated.delay(delay),
       Animated.timing(ring, {toValue:1,duration:1400,easing:Easing.out(Easing.ease),useNativeDriver:true}),
       Animated.timing(ring, {toValue:0,duration:0,useNativeDriver:true}),

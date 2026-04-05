@@ -28,7 +28,9 @@ except ImportError as e:
 
 SEMITONES_IN_OCTAVE = 12
 
+# ─── Scale definitions ────────────────────────────────────────────────────
 SCALE_ALIASES = {
+    # Common names → librosa scale strings
     'C major':   'C:maj',   'C minor':   'C:min',
     'D major':   'D:maj',   'D minor':   'D:min',
     'E major':   'E:maj',   'E minor':   'E:min',
@@ -38,24 +40,33 @@ SCALE_ALIASES = {
     'B major':   'B:maj',   'B minor':   'B:min',
     'C# major':  'C#:maj',  'C# minor':  'C#:min',
     'D# major':  'D#:maj',  'Eb major':  'Eb:maj',
-    'Chromatic': None,
+    'Chromatic': None,       # snap to all 12 notes
 }
 
 
+# ─── Core pitch snapping ──────────────────────────────────────────────────
 def _snap_to_nearest_scale_note(
     pitch_hz:   float,
     scale:      Optional[str],
     strength:   float = 1.0,
 ) -> float:
+    """
+    Snap a pitch (Hz) toward the nearest note in the given scale.
+    strength = 0.0 → no correction (natural)
+    strength = 1.0 → full correction (perfect pitch)
+    """
     if np.isnan(pitch_hz) or pitch_hz <= 0:
         return pitch_hz
 
     if scale is None:
+        # Chromatic: snap to nearest semitone
         midi = librosa.hz_to_midi(pitch_hz)
         snapped_midi = round(midi)
         target_hz = librosa.midi_to_hz(snapped_midi)
     else:
+        # Get scale degree pitches relative to root
         degrees = librosa.key_to_degrees(scale)
+        # Extend to next octave for wrapping
         degrees = np.concatenate([degrees, [degrees[0] + SEMITONES_IN_OCTAVE]])
         midi = librosa.hz_to_midi(pitch_hz)
         degree = midi % SEMITONES_IN_OCTAVE
@@ -64,6 +75,8 @@ def _snap_to_nearest_scale_note(
         target_midi = midi - correction
         target_hz   = librosa.midi_to_hz(target_midi)
 
+    # Blend: interpolate between original and corrected pitch
+    # strength=0 → original, strength=1 → fully snapped
     blended_hz = pitch_hz * (1 - strength) + target_hz * strength
     return blended_hz
 
@@ -74,6 +87,10 @@ def _correct_pitch_contour(
     strength: float,
     smooth:   bool = True,
 ) -> np.ndarray:
+    """
+    Apply pitch correction to an entire pitch contour array.
+    Returns corrected f0 array (same shape).
+    """
     corrected = np.zeros_like(f0)
     for i, pitch in enumerate(f0):
         if np.isnan(pitch):
@@ -81,7 +98,9 @@ def _correct_pitch_contour(
         else:
             corrected[i] = _snap_to_nearest_scale_note(pitch, scale, strength)
 
+    # Smooth the corrected contour to avoid abrupt jumps
     if smooth:
+        # Replace NaNs with 0 for median filter, then restore
         nan_mask    = np.isnan(corrected)
         temp        = np.where(nan_mask, 0.0, corrected)
         smoothed    = medfilt(temp, kernel_size=5)
@@ -90,27 +109,36 @@ def _correct_pitch_contour(
     return corrected
 
 
+# ─── Main pipeline ────────────────────────────────────────────────────────
 async def apply_autotune_pipeline(
     audio_bytes: bytes,
-    strength:    float = 0.78,
+    strength:    float = 0.75,  # Studio 75%
     key:         str   = 'C',
     scale_type:  str   = 'major',
-) -> dict:
+) -> bytes:
+    """
+    Full auto-tune pipeline. 
+    Returns:
+        audio_bytes:  autotuned WAV bytes
+    """
     if not AUTOTUNE_OK:
-        return _simulation_response(audio_bytes)
+        return audio_bytes
 
     try:
+        # ── 1. Load audio ─────────────────────────────────────────────
         with io.BytesIO(audio_bytes) as buf:
             y, sr = librosa.load(buf, sr=44100, mono=True)
 
-        if len(y) < sr * 0.5:
-            return _simulation_response(audio_bytes)
+        if len(y) < sr * 0.5:  # less than 0.5 seconds — too short
+            return audio_bytes
 
+        # ── 2. Resolve scale ──────────────────────────────────────────
         scale_key = f"{key} {scale_type}"
         librosa_scale = SCALE_ALIASES.get(scale_key, f"{key}:maj")
         if scale_type.lower() in ('minor', 'min'):
             librosa_scale = f"{key}:min"
 
+        # ── 3. pYIN pitch detection ───────────────────────────────────
         fmin = librosa.note_to_hz('C2')
         fmax = librosa.note_to_hz('C6')
 
@@ -124,22 +152,13 @@ async def apply_autotune_pipeline(
         )
 
         voiced_pct = float(np.mean(voiced_flag) * 100)
-
         if voiced_pct < 5:
-            return _wav_response(y, sr, 0.0, 'no_pitch_detected', voiced_pct)
+            return audio_bytes
 
+        # ── 4. Calculate corrected pitch contour ──────────────────────
         corrected_f0 = _correct_pitch_contour(f0, librosa_scale, strength)
 
-        valid_orig = f0[voiced_flag & ~np.isnan(f0)]
-        valid_corr = corrected_f0[voiced_flag & ~np.isnan(corrected_f0)]
-        if len(valid_orig) > 0 and len(valid_corr) > 0:
-            orig_midi = librosa.hz_to_midi(valid_orig[valid_orig > 0])
-            corr_midi = librosa.hz_to_midi(valid_corr[valid_corr > 0])
-            min_len   = min(len(orig_midi), len(corr_midi))
-            avg_correction = float(np.mean(np.abs(corr_midi[:min_len] - orig_midi[:min_len])))
-        else:
-            avg_correction = 0.0
-
+        # ── 5. PSOLA pitch shifting (formant-preserving) ──────────────
         try:
             tuned_audio = psola.vocode(
                 y,
@@ -148,25 +167,28 @@ async def apply_autotune_pipeline(
                 fmin=fmin,
                 fmax=fmax,
             )
-            mode = 'psola'
         except Exception as psola_err:
             print(f"[AutoTune] PSOLA failed ({psola_err}), using librosa fallback")
             tuned_audio = _librosa_pitch_shift_fallback(y, sr, f0, corrected_f0, voiced_flag)
-            mode = 'librosa_fallback'
 
+        # ── 6. Blend dry + wet signal (strength controls mix) ─────────
         blended = (1 - strength) * y + strength * tuned_audio
 
+        # Normalize to prevent clipping
         peak = np.max(np.abs(blended))
         if peak > 0.98:
             blended = blended * (0.98 / peak)
 
-        return _wav_response(blended, sr, avg_correction, mode, voiced_pct)
+        buf_out = io.BytesIO()
+        sf.write(buf_out, blended, sr, format='WAV', subtype='PCM_16')
+        return buf_out.getvalue()
 
     except Exception as e:
         print(f"[AutoTune] Pipeline error: {e}")
-        return _simulation_response(audio_bytes)
+        return audio_bytes
 
 
+# ─── Librosa fallback ─────────────────────────────────────────────────────
 def _librosa_pitch_shift_fallback(
     y:            np.ndarray,
     sr:           int,
@@ -188,33 +210,3 @@ def _librosa_pitch_shift_fallback(
         return y
 
     return librosa.effects.pitch_shift(y, sr=sr, n_steps=n_steps)
-
-
-def _wav_response(
-    audio:          np.ndarray,
-    sr:             int,
-    avg_correction: float,
-    mode:           str,
-    voiced_pct:     float,
-) -> dict:
-    buf = io.BytesIO()
-    sf.write(buf, audio, sr, format='WAV', subtype='PCM_16')
-    audio_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
-    return {
-        'audio_base64':   audio_b64,
-        'avg_correction': round(avg_correction, 2),
-        'mode':           mode,
-        'voiced_pct':     round(voiced_pct, 1),
-        'sample_rate':    sr,
-    }
-
-
-def _simulation_response(audio_bytes: bytes) -> dict:
-    audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
-    return {
-        'audio_base64':   audio_b64,
-        'avg_correction': 0.0,
-        'mode':           'simulation',
-        'voiced_pct':     0.0,
-        'note':           'Install psola + parselmouth for real pitch correction',
-    }

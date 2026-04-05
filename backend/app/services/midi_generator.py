@@ -81,8 +81,8 @@ RHYTHM_PATTERNS: Dict[str, Dict[str, List[tuple]]] = {
         'melody': [(0, 60), (720, 58), (1440, 62)],
     },
 
-    # ----- Classical Indian -----
-    'classical': {
+    # ----- Classical Indian (Teen Taal) -----
+    'classical_teentaal': {
         'bass': [(0, 80), (960, 80)],        # tanpura-like drone
         'chord': [(0, 65), (1920, 65)],      # slow harmonic rhythm
         'tabla': [
@@ -91,6 +91,20 @@ RHYTHM_PATTERNS: Dict[str, Dict[str, List[tuple]]] = {
             (960, 85), (1200, 60), (1440, 75), (1680, 55),
         ],
         'melody': [(0, 70), (960, 65)],
+    },
+
+    # ----- Classical Indian (Ektal) -----
+    'classical_ektal': {
+        'bass': [(0, 80), (720, 80), (1440, 80)],        
+        'chord': [(0, 65), (1920, 65)],      
+        'tabla': [
+            # Ektal (12 beat feel mapped to triplet subdivisions in 4/4)
+            (0, 90), (160, 60), (320, 70), 
+            (480, 65), (640, 55), (800, 75),
+            (960, 85), (1120, 60), (1280, 75),
+            (1440, 65), (1600, 55), (1760, 80),
+        ],
+        'melody': [(0, 70), (480, 65), (960, 75)],
     },
 
     # ----- Full Orchestral -----
@@ -188,7 +202,11 @@ def _get_style_config(style: str) -> Dict[str, Dict]:
             'bass':           {'program': GM_INSTRUMENTS['bass'],         'channel': 1, 'octave_offset':-12, 'role': 'bass'},
             'pad':            {'program': GM_INSTRUMENTS['pad'],          'channel': 2, 'octave_offset': 0, 'role': 'chord'},
         },
-        'classical': {
+        'classical_teentaal': {
+            'sitar':        {'program': GM_INSTRUMENTS['sitar'],         'channel': 0, 'octave_offset': 0, 'role': 'melody'},
+            'tanpura':      {'program': GM_INSTRUMENTS['pad'],           'channel': 1, 'octave_offset':-12, 'role': 'bass'},
+        },
+        'classical_ektal': {
             'sitar':        {'program': GM_INSTRUMENTS['sitar'],         'channel': 0, 'octave_offset': 0, 'role': 'melody'},
             'tanpura':      {'program': GM_INSTRUMENTS['pad'],           'channel': 1, 'octave_offset':-12, 'role': 'bass'},
         },

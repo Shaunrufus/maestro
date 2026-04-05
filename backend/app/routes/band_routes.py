@@ -143,9 +143,18 @@ async def analyze_and_generate(
     # Step 4: Determine styles to generate
     styles = [s.strip() for s in selected_styles.split(",") if s.strip()] or None
 
+    # Step 4.5: Autotune vocal (NEW Phase 6)
+    from app.services.autotune import apply_autotune_pipeline
+    tuned_audio_bytes = await apply_autotune_pipeline(
+        audio_bytes=audio_bytes,
+        strength=0.75, # 'Studio' preset
+        key=key,
+        scale_type="major" # using major as default fallback
+    )
+
     # Step 5: Generate arrangements with vocal mixed in
     arrangements = await generate_all_arrangements(
-        vocal_bytes     = audio_bytes,
+        vocal_bytes     = tuned_audio_bytes,
         chord_sequence  = chord_sequence,
         bpm             = bpm,
         duration_sec    = analysis.get("duration_sec", 30.0),

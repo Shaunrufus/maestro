@@ -2,7 +2,7 @@ import React, {useRef, useState} from 'react';
 import {Animated, Dimensions, PanResponder, Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
 const {width: SW, height: SH} = Dimensions.get('window');
 const C = {bg:'rgba(11,11,18,0.88)',border:'rgba(0,217,192,0.35)',teal:'#00D9C0',gold:'#D4AF37',textPri:'#FFFFFF',textSec:'rgba(255,255,255,0.55)',textMut:'rgba(255,255,255,0.3)',handle:'rgba(255,255,255,0.15)'};
-export const FloatingLyricsWindow = ({visible, onClose}) => {
+export const FloatingLyricsWindow = ({visible, onClose}: {visible: boolean, onClose: () => void}) => {
   const [lyrics, setLyrics] = useState('');
   const [fontSize, setFontSize] = useState(16);
   const [minimised, setMinimised] = useState(false);
@@ -10,12 +10,12 @@ export const FloatingLyricsWindow = ({visible, onClose}) => {
   const panResponder = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
-    onPanResponderGrant: () => {pan.setOffset({x: (pan.x)._value, y: (pan.y)._value}); pan.setValue({x: 0, y: 0});},
+    onPanResponderGrant: () => {pan.setOffset({x: (pan.x as any)._value, y: (pan.y as any)._value}); pan.setValue({x: 0, y: 0});},
     onPanResponderMove: Animated.event([null, {dx: pan.x, dy: pan.y}], {useNativeDriver: false}),
     onPanResponderRelease: () => {
       pan.flattenOffset();
-      const x = Math.max(0, Math.min(SW - 260, (pan.x)._value));
-      const y = Math.max(40, Math.min(SH - 200, (pan.y)._value));
+      const x = Math.max(0, Math.min(SW - 260, (pan.x as any)._value));
+      const y = Math.max(40, Math.min(SH - 200, (pan.y as any)._value));
       Animated.spring(pan, {toValue: {x, y}, useNativeDriver: false, friction: 8}).start();
     },
   })).current;

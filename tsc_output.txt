@@ -1,0 +1,11 @@
+﻿src/components/studio/FloatingLyricsWindow.tsx(5,39): error TS7031: Binding element 'visible' implicitly has an 'any' type.
+src/components/studio/FloatingLyricsWindow.tsx(5,48): error TS7031: Binding element 'onClose' implicitly has an 'any' type.
+src/components/studio/FloatingLyricsWindow.tsx(13,59): error TS2339: Property '_value' does not exist on type 'Value'.
+src/components/studio/FloatingLyricsWindow.tsx(13,78): error TS2339: Property '_value' does not exist on type 'Value'.
+src/components/studio/FloatingLyricsWindow.tsx(17,56): error TS2339: Property '_value' does not exist on type 'Value'.
+src/components/studio/FloatingLyricsWindow.tsx(18,57): error TS2339: Property '_value' does not exist on type 'Value'.
+src/components/studio/StudioLoadingOverlay.tsx(11,39): error TS7031: Binding element 'stage' implicitly has an 'any' type.
+src/components/studio/StudioLoadingOverlay.tsx(11,46): error TS7031: Binding element 'visible' implicitly has an 'any' type.
+src/components/studio/StudioLoadingOverlay.tsx(12,15): error TS7053: Element implicitly has an 'any' type because expression of type 'any' can't be used to index type '{ autotune: { color: string; label: string; sublabel: string; }; analyzing: { color: string; label: string; sublabel: string; }; generating: { color: string; label: string; sublabel: string; }; saving: { color: string; label: string; sublabel: string; }; mixing: { ...; }; }'.
+src/components/studio/StudioLoadingOverlay.tsx(20,23): error TS7006: Parameter 'ring' implicitly has an 'any' type.
+src/components/studio/StudioLoadingOverlay.tsx(20,29): error TS7006: Parameter 'delay' implicitly has an 'any' type.

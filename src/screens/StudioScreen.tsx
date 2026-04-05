@@ -21,6 +21,9 @@ import {
   Text,
   TextInput,
   View,
+  PanResponder,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Audio } from 'expo-av';
 import { playInstrumentChord } from '../services/instrumentService';
@@ -55,13 +58,13 @@ type InstrKey = 'keys' | 'guitar' | 'tabla' | 'flute' | 'sitar' | 'strings';
 const INSTRUMENTS: { key: InstrKey; label: string; sym: string; pro: boolean; freq: number }[] = [
   { key: 'keys',       label: 'Keys',    sym: '🎹', pro: false, freq: 1.0   },
   { key: 'guitar',     label: 'Guitar',  sym: '🎸', pro: false, freq: 1.5   },
-  { key: 'tabla',      label: 'Tabla',   sym: '🥁', pro: true,  freq: 2.0   },
-  { key: 'flute',      label: 'Flute',   sym: '🪈', pro: true,  freq: 2.5   },
-  { key: 'sitar',      label: 'Sitar',   sym: '\u{1F3B5}', pro: true,  freq: 1.8   }, // 🎵
-  { key: 'strings',    label: 'Strings', sym: '🎻', pro: true,  freq: 1.3   }, // Orchestra = Strings
+  { key: 'tabla',      label: 'Tabla',   sym: '🥁', pro: false, freq: 2.0   },
+  { key: 'flute',      label: 'Flute',   sym: '🪈', pro: false, freq: 2.5   },
+  { key: 'sitar',      label: 'Sitar',   sym: '\u{1F3B5}', pro: false, freq: 1.8   },
+  { key: 'strings',    label: 'Strings', sym: '🎻', pro: false, freq: 1.3   },
 ];
 
-const TABS = ['Studio', 'Songs', 'Discover', 'Profile'];
+
 
 const CHORD_PROGRESSIONS = {
   'C Major': ['C', 'G', 'Am', 'F'],
@@ -106,10 +109,6 @@ export default function StudioScreen({ navigation }: any) {
   const [showChordInput,  setShowChordInput ] = useState(false);
 
   // ── Post-recording band ────────────────────────────────────────────────
-  const [arrangements,   setArrangements   ] = useState<any[]>([]);
-  const [activeTab,      setActiveTab      ] = useState('Studio');
-  const [playingArrId,   setPlayingArrId   ] = useState<string | null>(null);
-  const [selectedArrId,  setSelectedArrId  ] = useState<string | null>(null);
 
   // ── Animations ────────────────────────────────────────────────────────
   const recPulse = useRef(new Animated.Value(1)).current;
@@ -118,7 +117,29 @@ export default function StudioScreen({ navigation }: any) {
     Array.from({ length: 40 }, () => new Animated.Value(1))
   );
 
-  // Recording timer
+  // ── Floating Lyrics ────────────────────────────────────────────────────
+  const pan = useRef(new Animated.ValueXY()).current;
+  const [showLyrics, setShowLyrics] = useState(false);
+  const [lyricsText, setLyricsText] = useState('');
+  const [lyricsMin,  setLyricsMin]  = useState(false);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        // Only drag if the user is dragging the header (not scrolling inside TextInput)
+        return Math.abs(gestureState.dx) > 2 || Math.abs(gestureState.dy) > 2;
+      },
+      onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false }),
+      onPanResponderRelease: () => {
+        pan.extractOffset();
+      },
+    })
+  ).current;
+
+  // ── Loading Overlay Rings ──────
+  const ring1 = useRef(new Animated.Value(0)).current;
+  const ring2 = useRef(new Animated.Value(0)).current;
+  const ring3 = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (!isRecording) { setElapsed(0); return; }
     const t = setInterval(() => setElapsed(s => s + 1), 1000);
@@ -163,6 +184,23 @@ export default function StudioScreen({ navigation }: any) {
     return () => loops.forEach(l => l.stop());
   }, [isRecording]);
 
+  // Loading Overlay Rings Animation
+  useEffect(() => {
+    if (['analyzing', 'processing_autotune', 'generating_band'].includes(status)) {
+      Animated.loop(
+        Animated.stagger(400, [
+          Animated.timing(ring1, { toValue: 1, duration: 2000, useNativeDriver: true }),
+          Animated.timing(ring2, { toValue: 1, duration: 2000, useNativeDriver: true }),
+          Animated.timing(ring3, { toValue: 1, duration: 2000, useNativeDriver: true }),
+        ])
+      ).start();
+    } else {
+      ring1.setValue(0);
+      ring2.setValue(0);
+      ring3.setValue(0);
+    }
+  }, [status]);
+
   // ─────────────────────────────────────────────────────────────────────
   // RECORD HANDLER
   // ─────────────────────────────────────────────────────────────────────
@@ -190,10 +228,7 @@ export default function StudioScreen({ navigation }: any) {
 
       setTunedAudioB64(null);
       setLocalUri(null);
-      setArrangements([]);
       setDetectedChords([]);
-      setPlayingArrId(null);
-      setSelectedArrId(null);
       setStatus('recording');
       setStatusMsg('Recording...');
 
@@ -326,12 +361,22 @@ export default function StudioScreen({ navigation }: any) {
 
       if (res.ok) {
         const data = await res.json();
-        setArrangements(data.arrangements ?? []);
-        setStatus('ready');
-        setStatusMsg(`${data.arrangements?.length ?? 0} arrangements ready — Pick your favorite!`);
-      } else {
         setStatus('ready');
         setStatusMsg('Generation complete');
+        
+        navigation.navigate('BandResults', {
+          recordingId: 'demo-id-' + Date.now(),
+          recordingUrl: uri,
+          analysisResult: {
+            key: data.key ?? 'C',
+            bpm: data.bpm ?? 90,
+            arrangements: data.arrangements ?? []
+          },
+          projectName: 'My Song ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute:'2-digit' })
+        });
+      } else {
+        setStatus('ready');
+        setStatusMsg('Generation failed');
       }
     } catch (e) {
       console.error('[Studio] Band generation failed:', e);
@@ -398,73 +443,7 @@ export default function StudioScreen({ navigation }: any) {
     );
   };
 
-  // ─────────────────────────────────────────────────────────────────────
-  // ARRANGEMENT PREVIEW
-  // ─────────────────────────────────────────────────────────────────────
-  const previewArrangement = async (arr: any) => {
-    if (!arr.audio_base64) {
-      Alert.alert('No audio', 'Add FluidSynth soundfont to Railway.');
-      return;
-    }
 
-    // Stop if already playing
-    if (playingArrId === arr.id && playbackSound) {
-      await playbackSound.stopAsync();
-      await playbackSound.unloadAsync();
-      setPlaybackSound(null);
-      setPlayingArrId(null);
-      return;
-    }
-
-    // Stop previous
-    if (playbackSound) {
-      await playbackSound.stopAsync();
-      await playbackSound.unloadAsync();
-    }
-
-    try {
-      const uri = `data:audio/wav;base64,${arr.audio_base64}`;
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
-      const { sound } = await Audio.Sound.createAsync({ uri }, { shouldPlay: true });
-      setPlaybackSound(sound);
-      setPlayingArrId(arr.id);
-
-      sound.setOnPlaybackStatusUpdate((s) => {
-        if (s.isLoaded && s.didJustFinish) {
-          setPlaybackSound(null);
-          setPlayingArrId(null);
-        }
-      });
-    } catch (e) {
-      console.error('[Studio] Preview failed:', e);
-    }
-  };
-
-  // ─────────────────────────────────────────────────────────────────────
-  // PICK ARRANGEMENT
-  // ─────────────────────────────────────────────────────────────────────
-  const pickArrangement = (arr: any) => {
-    setSelectedArrId(arr.id);
-    Alert.alert(
-      'Save to My Songs?',
-      `Save this ${arr.label} arrangement?`,
-      [
-        {
-          text: 'Cancel',
-          onPress: () => setSelectedArrId(null),
-          style: 'cancel',
-        },
-        {
-          text: 'Save',
-          onPress: async () => {
-            // TODO: Save to My Songs in Supabase
-            Alert.alert('✓ Saved!', 'Arrangement saved to My Songs');
-            setSelectedArrId(null);
-          },
-        },
-      ]
-    );
-  };
 
   const fmt = (s: number) =>
     `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
@@ -499,8 +478,13 @@ export default function StudioScreen({ navigation }: any) {
               <Text style={s.logo}>{APP_NAME}</Text>
               <Text style={s.logoSub}>Virtual Studio</Text>
             </View>
-            <View style={s.avatar}>
-              <Text style={s.avatarTx}>S</Text>
+            <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+              <Pressable onPress={() => setShowLyrics(!showLyrics)} style={s.lyricBtn}>
+                <Text style={s.lyricBtnTx}>📝</Text>
+              </Pressable>
+              <View style={s.avatar}>
+                <Text style={s.avatarTx}>S</Text>
+              </View>
             </View>
           </View>
 
@@ -542,19 +526,7 @@ export default function StudioScreen({ navigation }: any) {
             <Text style={s.timeTx}>1:00</Text>
           </View>
 
-          {/* STATUS */}
-          {status !== 'idle' && (
-            <View style={[s.statusBar, { borderColor: STATUS_COLOR[status] + '60' }]}>
-              <Text style={[s.statusTx, { color: STATUS_COLOR[status] }]}>
-                {status === 'recording'           ? '⏺ ' :
-                 status === 'processing_autotune' ? '🎵 ' :
-                 status === 'autotune_done'       ? '✦ ' :
-                 status === 'analyzing'           ? '👂 ' :
-                 status === 'generating_band'     ? '🎼 ' : '✅ '}
-                {statusMsg}
-              </Text>
-            </View>
-          )}
+
 
           {/* PITCH */}
           <View style={s.pitchRow}>
@@ -681,37 +653,7 @@ export default function StudioScreen({ navigation }: any) {
             )}
           </View>
 
-          {/* ARRANGEMENTS — ✅ PREVIEW + PICK + SAVE WORKFLOW */}
-          {arrangements.length > 0 && (
-            <View style={s.arrSec}>
-              <Text style={s.arrTitle}>6 Arrangements Generated</Text>
-              <Text style={s.arrSub}>Tap preview to hear • Pick to save</Text>
-              {arrangements.map((arr: any) => (
-                <View key={arr.id} style={[s.arrCard, selectedArrId === arr.id && {backgroundColor: C.tealBg, borderColor: C.teal}]}>
-                  <View style={s.arrCardHdr}>
-                    <Text style={{ fontSize: 28 }}>{arr.emoji ?? '🎵'}</Text>
-                    <View style={{ flex: 1, marginLeft: 10 }}>
-                      <Text style={s.arrLabel}>{arr.label ?? arr.id}</Text>
-                      <Text style={s.arrDesc}>{arr.desc ?? ''}</Text>
-                    </View>
-                  </View>
-                  <View style={s.arrBtns}>
-                    <Pressable
-                      style={[s.arrBtn, s.arrPreviewBtn, !arr.has_audio && { opacity: 0.4 }]}
-                      onPress={() => previewArrangement(arr)}
-                      disabled={!arr.has_audio}
-                    >
-                      <Text style={s.arrPreviewTx}>{playingArrId === arr.id ? '⏹ Stop' : '▶ Preview'}</Text>
-                    </Pressable>
-                    <Pressable style={[s.arrBtn, s.arrPickBtn, selectedArrId === arr.id && {opacity: 0.5}]} onPress={() => pickArrangement(arr)}>
-                      <Text style={s.arrPickTx}>★ {selectedArrId === arr.id ? 'Picked' : 'Pick'}</Text>
-                    </Pressable>
-                  </View>
-                  {!arr.has_audio && <Text style={s.arrNoAudioTx}>Generating audio...</Text>}
-                </View>
-              ))}
-            </View>
-          )}
+
 
           {/* GURU */}
           <View style={s.guruArea}>
@@ -726,23 +668,56 @@ export default function StudioScreen({ navigation }: any) {
           </View>
 
         </ScrollView>
-
-        {/* TABS — ✅ SINGLE ROW FIXED */}
-        <View style={s.tabBar}>
-          {TABS.map((tab, idx) => {
-            const on = activeTab === tab;
-            return (
-              <Pressable key={tab} style={s.tab} onPress={() => setActiveTab(tab)}>
-                <View style={[s.tabIco, on && s.tabIcoOn]}>
-                  <Text style={[s.tabIcoTx, on && s.tabIcoTxOn]}>{tab[0]}</Text>
-                </View>
-                <Text style={[s.tabLbl, on && s.tabLblOn]} numberOfLines={1}>{tab}</Text>
-                {on && <View style={s.tabDot} />}
-              </Pressable>
-            );
-          })}
-        </View>
       </SafeAreaView>
+           {/* FLOATING LYRICS WINDOW */}
+      {showLyrics && (
+        <Animated.View style={[s.lyricsWin, { transform: pan.getTranslateTransform() }]}>
+          <View {...panResponder.panHandlers} style={s.lyricsDragBar}>
+            <View style={s.lyricsHandle} />
+            <View style={{flexDirection: 'row', gap: 10}}>
+              <Pressable onPress={() => setLyricsMin(!lyricsMin)} hitSlop={10}>
+                <Text style={s.lyricWinBtn}>{lyricsMin ? '➕' : '➖'}</Text>
+              </Pressable>
+              <Pressable onPress={() => setShowLyrics(false)} hitSlop={10}>
+                <Text style={s.lyricWinBtn}>✖</Text>
+              </Pressable>
+            </View>
+          </View>
+          {!lyricsMin && (
+            <TextInput
+              style={s.lyricsInput}
+              value={lyricsText}
+              onChangeText={setLyricsText}
+              placeholder="Paste or write your lyrics here..."
+              placeholderTextColor="rgba(255,255,255,0.2)"
+              multiline
+              textAlignVertical="top"
+            />
+          )}
+        </Animated.View>
+      )}
+
+      {/* ZERO-TEXT GUITAR LOADING OVERLAY */}
+      {['analyzing', 'processing_autotune', 'generating_band'].includes(status) && (
+        <View style={s.loadingOverlay}>
+          <View style={s.loadingCenter}>
+            <Animated.View style={[s.loadRing, { borderColor: C.teal, opacity: ring1.interpolate({ inputRange:[0,0.5,1], outputRange:[0, 1, 0] }), transform: [{ scale: ring1.interpolate({ inputRange:[0,1], outputRange:[0.5, 2] }) }] }]} />
+            <Animated.View style={[s.loadRing, { borderColor: C.gold, opacity: ring2.interpolate({ inputRange:[0,0.5,1], outputRange:[0, 1, 0] }), transform: [{ scale: ring2.interpolate({ inputRange:[0,1], outputRange:[0.5, 2] }) }] }]} />
+            <Animated.View style={[s.loadRing, { borderColor: C.purple, opacity: ring3.interpolate({ inputRange:[0,0.5,1], outputRange:[0, 1, 0] }), transform: [{ scale: ring3.interpolate({ inputRange:[0,1], outputRange:[0.5, 2] }) }] }]} />
+            
+            <View style={s.guitarWrap}>
+              <Text style={{ fontSize: 60 }}>🎸</Text>
+            </View>
+            
+            <View style={s.eqRow}>
+              {[5,14,24,14,5].map((h, i) => {
+                const anim = waveBarScales[i % waveBarScales.length]; // reuse wavebar animations
+                return <Animated.View key={i} style={[s.eqBar, { transform: [{ scaleY: anim }], height: h }]} />
+              })}
+            </View>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -851,13 +826,20 @@ const s = StyleSheet.create({
   guruBtn:        { width:50, height:50, borderRadius:25, backgroundColor:C.gold, alignItems:'center', justifyContent:'center', shadowColor:C.gold, shadowOffset:{width:0,height:0}, shadowOpacity:0.9, shadowRadius:14, elevation:10 },
   guruTx:         { fontSize:13, fontWeight:'700', color:C.bg },
   guruLbl:        { fontSize:8, fontWeight:'700', color:C.gold, marginTop:4, letterSpacing:1 },
-  tabBar:         { flexDirection:'row', backgroundColor:C.bgSurf, borderTopWidth:1, borderTopColor:C.border, height:64, alignItems:'center' },
-  tab:            { flex:1, alignItems:'center', justifyContent:'center', height:'100%', gap:2 },
-  tabIco:         { width:24, height:24, borderRadius:12, backgroundColor:C.bgCard, alignItems:'center', justifyContent:'center' },
-  tabIcoOn:       { backgroundColor:C.tealBg, borderWidth:1, borderColor:C.teal },
-  tabIcoTx:       { fontSize:10, fontWeight:'700', color:C.textMut },
-  tabIcoTxOn:     { color:C.teal },
-  tabLbl:         { fontSize:8, color:C.textMut },
-  tabLblOn:       { color:C.teal, fontWeight:'600' },
-  tabDot:         { width:4, height:4, borderRadius:2, backgroundColor:C.teal },
+
+  // NEW STYLES
+  lyricBtn:       { width: 32, height: 32, borderRadius: 16, backgroundColor: C.bgCard, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border },
+  lyricBtnTx:     { fontSize: 13 },
+  lyricsWin:      { position: 'absolute', top: 120, left: 20, width: 280, backgroundColor: 'rgba(21, 21, 32, 0.95)', borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)', shadowColor: '#000', shadowOpacity: 0.8, shadowRadius: 20, elevation: 15, zIndex: 9999 },
+  lyricsDragBar:  { height: 34, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)' },
+  lyricsHandle:   { width: 40, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.3)', alignSelf: 'center', flex: 1, marginHorizontal: 20 },
+  lyricWinBtn:    { fontSize: 10, color: C.textMut },
+  lyricsInput:    { minHeight: 200, maxHeight: 400, color: C.textPri, padding: 14, fontSize: 16, lineHeight: 24, fontWeight: '500' },
+  
+  loadingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(11,11,18,0.85)', zIndex: 10000, alignItems: 'center', justifyContent: 'center' },
+  loadingCenter:  { width: 200, height: 200, alignItems: 'center', justifyContent: 'center' },
+  loadRing:       { position: 'absolute', width: 140, height: 140, borderRadius: 70, borderWidth: 2 },
+  guitarWrap:     { width: 90, height: 90, borderRadius: 45, backgroundColor: '#0B0B12', alignItems: 'center', justifyContent: 'center', shadowColor: C.teal, shadowOpacity: 0.5, shadowRadius: 20, elevation: 10 },
+  eqRow:          { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 40 },
+  eqBar:          { width: 4, backgroundColor: C.gold, borderRadius: 2 },
 });

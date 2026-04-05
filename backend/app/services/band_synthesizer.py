@@ -52,45 +52,59 @@ def _find_soundfont() -> Optional[str]:
 ARRANGEMENTS = [
     {
         "id":    "bollywood_pop",
-        "label": "Bollywood Pop",
+        "label": "Output A",
         "emoji": "🎬",
         "desc":  "Piano · Tabla · Strings",
         "color": "#FF6B35",
+        "metadata": {"tempo": 102, "feel": "energetic", "instruments": ["Piano", "Tabla", "Strings"], "chords": ["C", "Am", "F", "G"]}
     },
     {
         "id":    "folk",
-        "label": "Acoustic Folk",
+        "label": "Output B",
         "emoji": "🎸",
         "desc":  "Guitar · Bansuri · Bass",
         "color": "#4CAF50",
+        "metadata": {"tempo": 90, "feel": "acoustic", "instruments": ["Guitar", "Bansuri", "Bass"], "chords": ["C", "Am", "F", "G"]}
     },
     {
         "id":    "lofi",
-        "label": "Lo-Fi Chill",
+        "label": "Output C",
         "emoji": "🌙",
         "desc":  "Electric Piano · Pad · Bass",
         "color": "#7C4DFF",
+        "metadata": {"tempo": 76, "feel": "chill", "instruments": ["Electric Piano", "Synth Pad", "Bass"], "chords": ["C", "Am", "F", "G"]}
     },
     {
-        "id":    "classical",
-        "label": "Classical Indian",
+        "id":    "classical_teentaal",
+        "label": "Output D",
         "emoji": "🪗",
         "desc":  "Sitar · Tabla · Tanpura",
         "color": "#FF9800",
+        "metadata": {"tempo": 110, "feel": "classical", "instruments": ["Sitar", "Tabla", "Tanpura"], "chords": ["C", "Am", "F", "G"]}
+    },
+    {
+        "id":    "classical_ektal",
+        "label": "Output E",
+        "emoji": "🪕",
+        "desc":  "Sitar · Tabla (12beat)",
+        "color": "#FF5722",
+        "metadata": {"tempo": 85, "feel": "classical", "instruments": ["Sitar", "Tabla"], "chords": ["C", "Am", "F", "G"]}
     },
     {
         "id":    "orchestral",
-        "label": "Full Orchestral",
+        "label": "Output F",
         "emoji": "🎻",
         "desc":  "Strings · Piano · Brass",
         "color": "#2196F3",
+        "metadata": {"tempo": 95, "feel": "epic", "instruments": ["Strings", "Piano", "Brass"], "chords": ["C", "Am", "F", "G"]}
     },
     {
         "id":    "rnb",
-        "label": "Contemporary R&B",
+        "label": "Output G",
         "emoji": "✨",
         "desc":  "Electric Piano · Pad · Bass",
         "color": "#E91E63",
+        "metadata": {"tempo": 88, "feel": "smooth", "instruments": ["Electric Piano", "Bass", "Drums"], "chords": ["C", "Am", "F", "G"]}
     },
 ]
 
