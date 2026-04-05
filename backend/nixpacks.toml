@@ -15,6 +15,9 @@ nixPkgs = [
 cmds = [
   "python3.11 -m pip install --upgrade pip",
   "python3.11 -m pip install -r requirements.txt",
+  # Download SoundFont for realistic instrument rendering
+  "mkdir -p soundfonts",
+  "python3.11 -c \"from app.services.download_soundfont import download_soundfont; download_soundfont()\"",
 ]
 
 [start]

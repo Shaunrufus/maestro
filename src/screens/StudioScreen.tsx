@@ -13,6 +13,7 @@ import {
   Alert,
   Animated,
   Easing,
+  Modal,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -24,8 +25,10 @@ import {
   PanResponder,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { Audio } from 'expo-av';
+import { LinearGradient } from 'expo-linear-gradient';
 import { playInstrumentChord } from '../services/instrumentService';
 
 function generateUUID() {
@@ -87,7 +90,13 @@ const CHORD_PROGRESSIONS = {
 type StudioStatus = 'idle' | 'recording' | 'processing_autotune' | 'autotune_done' | 'analyzing' | 'generating_band' | 'ready';
 
 // ─────────────────────────────────────────────────────────────────────────
-export default function StudioScreen({ navigation }: any) {
+export default function StudioScreen({ navigation, route }: any) {
+  // ── Project state ──────────────────────────────────────────────────────
+  const [projectName,       setProjectName      ] = useState<string>(route?.params?.projectName || '');
+  const [projectId,         setProjectId        ] = useState<string>(route?.params?.projectId || '');
+  const [showProjectPrompt, setShowProjectPrompt] = useState(false);
+  const [tempProjectName,   setTempProjectName  ] = useState('');
+
   // ── Recording state ────────────────────────────────────────────────────
   const [recording,       setRecording      ] = useState<Audio.Recording | null>(null);
   const [isRecording,     setIsRecording    ] = useState(false);
@@ -215,8 +224,22 @@ export default function StudioScreen({ navigation }: any) {
     if (isRecording) {
       await stopRecording();
     } else {
+      // If no project name set yet, prompt for one before starting
+      if (!projectName.trim()) {
+        setTempProjectName('');
+        setShowProjectPrompt(true);
+        return;
+      }
       await startRecording();
     }
+  };
+
+  const confirmProjectAndRecord = async () => {
+    const name = tempProjectName.trim() || `Session ${new Date().toLocaleDateString()}`;
+    setProjectName(name);
+    setShowProjectPrompt(false);
+    // Small delay to let modal close
+    setTimeout(() => startRecording(), 300);
   };
 
   const startRecording = async () => {
@@ -383,7 +406,7 @@ export default function StudioScreen({ navigation }: any) {
               metadata: a.metadata ?? { tempo: 90, feel: '', instruments: [], chords: [] },
             })),
           },
-          projectName: 'My Song ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute:'2-digit' })
+          projectName: projectName || 'My Song ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute:'2-digit' })
         });
       } else {
         setStatus('ready');
@@ -502,7 +525,7 @@ export default function StudioScreen({ navigation }: any) {
           {/* SONG INFO */}
           <View style={s.songCard}>
             <View style={s.songRow}>
-              <Text style={s.songName}>Untitled Session</Text>
+              <Text style={s.songName}>{projectName || 'Untitled Session'}</Text>
               <View style={s.liveRow}>
                 <View style={[s.liveDot, { backgroundColor: isRecording ? C.red : C.teal }]} />
                 <Text style={[s.liveTx, { color: isRecording ? C.red : C.teal }]}>
@@ -707,6 +730,39 @@ export default function StudioScreen({ navigation }: any) {
           )}
         </Animated.View>
       )}
+
+      {/* PROJECT NAME PROMPT MODAL */}
+      <Modal visible={showProjectPrompt} transparent animationType="fade">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ width: '85%', backgroundColor: '#13131E', borderRadius: 22, borderWidth: 1, borderColor: 'rgba(212,175,55,0.2)', overflow: 'hidden' }}>
+            <View style={{ height: 3, backgroundColor: C.gold }} />
+            <Text style={{ color: '#F0E6C8', fontSize: 18, fontWeight: '700', paddingHorizontal: 22, paddingTop: 20, paddingBottom: 8 }}>Name Your Project</Text>
+            <Text style={{ color: 'rgba(240,230,200,0.4)', fontSize: 12, paddingHorizontal: 22, marginBottom: 14 }}>All recordings in this session will be saved to this project</Text>
+            <TextInput
+              style={{ backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 12, padding: 14, marginHorizontal: 22, marginBottom: 14, color: '#F0E6C8', fontSize: 15, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}
+              value={tempProjectName}
+              onChangeText={setTempProjectName}
+              placeholder="My Song"
+              placeholderTextColor="rgba(240,230,200,0.2)"
+              autoFocus
+            />
+            <View style={{ flexDirection: 'row', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' }}>
+              <Pressable
+                style={{ flex: 1, paddingVertical: 16, alignItems: 'center', borderRightWidth: 1, borderRightColor: 'rgba(255,255,255,0.06)' }}
+                onPress={() => setShowProjectPrompt(false)}
+              >
+                <Text style={{ color: 'rgba(240,230,200,0.4)', fontSize: 14, fontWeight: '600' }}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={{ flex: 1, paddingVertical: 16, alignItems: 'center', backgroundColor: C.gold }}
+                onPress={confirmProjectAndRecord}
+              >
+                <Text style={{ color: '#0B0B12', fontSize: 14, fontWeight: '700' }}>Start Recording</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* ZERO-TEXT GUITAR LOADING OVERLAY */}
       {['analyzing', 'processing_autotune', 'generating_band'].includes(status) && (

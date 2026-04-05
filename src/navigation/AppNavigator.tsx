@@ -1,6 +1,6 @@
 // src/navigation/AppNavigator.tsx
-// Bottom tab navigator for authenticated users.
-// Tabs: Studio, My Songs, Discover, Profile
+// Bottom tab navigator + nested stack for authenticated users.
+// Tabs: Studio, Projects, My Songs, Discover, Profile
 
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -18,6 +18,8 @@ import { MultitrackScreen } from '../screens/MultitrackScreen';
 import { CompingScreen }    from '../screens/CompingScreen';
 import { MixModeScreen }    from '../screens/MixModeScreen';
 import { BandResultsScreen } from '../screens/BandResultsScreen';
+import { ProjectsScreen }    from '../screens/ProjectsScreen';
+import { EditorScreen }      from '../screens/EditorScreen';
 import { Colors }         from '../theme';
 
 const Tab   = createBottomTabNavigator();
@@ -27,18 +29,18 @@ const Stack = createNativeStackNavigator();
 const TabIcon = ({ label, active }: { label: string; active: boolean }) => (
   <View style={{
     width: 22, height: 22, borderRadius: 11,
-    backgroundColor: active ? 'rgba(0,217,192,0.15)' : 'rgba(255,255,255,0.06)',
+    backgroundColor: active ? 'rgba(212,175,55,0.15)' : 'rgba(255,255,255,0.06)',
     borderWidth: active ? 1 : 0,
-    borderColor: Colors.teal,
+    borderColor: '#D4AF37',
     alignItems: 'center', justifyContent: 'center',
   }}>
-    <Text style={{ fontSize: 9, fontWeight: '700', color: active ? Colors.teal : Colors.textMuted }}>
+    <Text style={{ fontSize: 9, fontWeight: '700', color: active ? '#D4AF37' : Colors.textMuted }}>
       {label[0]}
     </Text>
   </View>
 );
 
-// Studio tab has nested stack (Studio → Guru → Lyrics → BandResults)
+// Studio tab has nested stack (Studio → Guru → Lyrics → BandResults → Editor)
 function StudioStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -50,6 +52,7 @@ function StudioStack() {
       <Stack.Screen name="Lyrics"      component={LyricsScreen} />
       <Stack.Screen name="Paywall"     component={PaywallScreen} />
       <Stack.Screen name="BandResults" component={BandResultsScreen} />
+      <Stack.Screen name="Editor"      component={EditorScreen} />
     </Stack.Navigator>
   );
 }
@@ -59,13 +62,13 @@ export const AppNavigator = () => (
     screenOptions={{
       headerShown: false,
       tabBarStyle: {
-        backgroundColor: Colors.bgSurf,
-        borderTopColor:  Colors.border,
+        backgroundColor: '#0B0B12',
+        borderTopColor:  'rgba(255,255,255,0.06)',
         borderTopWidth:  1,
         paddingBottom:   8,
         height:          62,
       },
-      tabBarActiveTintColor:   Colors.teal,
+      tabBarActiveTintColor:   '#D4AF37',
       tabBarInactiveTintColor: Colors.textMuted,
       tabBarLabelStyle: { fontSize: 9, fontWeight: '600', marginTop: 2 },
     }}
@@ -74,6 +77,11 @@ export const AppNavigator = () => (
       name="Studio"
       component={StudioStack}
       options={{ tabBarIcon: ({ focused }) => <TabIcon label="Studio"   active={focused} /> }}
+    />
+    <Tab.Screen
+      name="Projects"
+      component={ProjectsScreen}
+      options={{ tabBarIcon: ({ focused }) => <TabIcon label="Projects" active={focused} /> }}
     />
     <Tab.Screen
       name="My Songs"

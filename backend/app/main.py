@@ -47,8 +47,11 @@ from app.routes.audio_routes      import router as audio_router
 from app.routes.guru_routes        import router as guru_router
 from app.routes.multitrack_routes  import router as multitrack_router
 from app.routes.band_routes        import router as band_router
+from app.routes.editor_routes      import router as editor_router
 
 app.include_router(audio_router)
 app.include_router(guru_router)
 app.include_router(multitrack_router)
 app.include_router(band_router)
+app.include_router(editor_router)
+

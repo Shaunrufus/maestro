@@ -13,8 +13,9 @@ import asyncio
 
 from app.services.vocal_analysis  import analyze_vocal
 from app.services.chord_parser    import parse_chord_progression, suggest_progression
-from app.services.midi_generator   import generate_midi
+from app.services.midi_generator   import generate_arrangement_notes
 from app.services.band_synthesizer import generate_all_arrangements, ARRANGEMENTS
+from app.services.autotune         import get_autotune_status
 
 router = APIRouter(prefix="/band", tags=["Virtual Band"])
 
@@ -171,10 +172,11 @@ async def analyze_and_generate(
     )
 
     return {
-        "analysis":       analysis,
-        "chord_sequence": chord_sequence,
-        "progression":    chord_str,
-        "arrangements":   arrangements,
+        "analysis":        analysis,
+        "chord_sequence":  chord_sequence,
+        "progression":     chord_str,
+        "arrangements":    arrangements,
+        "autotune_status": get_autotune_status(),
     }
 
 

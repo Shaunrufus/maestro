@@ -40,7 +40,7 @@ async def autotune(
         strength = strength / 100.0
     strength = max(0.0, min(1.0, strength))
 
-    from app.services.autotune import apply_autotune_pipeline
+    from app.services.autotune import apply_autotune_pipeline, get_autotune_status
     result_bytes = await apply_autotune_pipeline(
         audio_bytes = audio_bytes,
         strength    = strength,
@@ -49,6 +49,7 @@ async def autotune(
     )
 
     audio_b64 = base64.b64encode(result_bytes).decode("utf-8")
+    at_status = get_autotune_status()
 
     return {
         "status":        "ok",
@@ -57,6 +58,7 @@ async def autotune(
         "key":           key,
         "scale":         scale,
         "strength":      strength,
+        "autotune_engine": at_status,
     }
 
 
