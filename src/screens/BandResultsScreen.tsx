@@ -355,19 +355,12 @@ export function BandResultsScreen() {
     if (playingId === arr.id) { await stopPlayback(); return; }
     await stopPlayback();
 
-    let url = arr.audioUrl ?? recordingUrl; // fallback to raw vocal
-    
-    // Fallback: If arrangement comes from backend with audio_base64 but no audioUrl
-    // (since our previous backend returned audio_base64 in the response)
-    const backendArr = (analysisResult as any)?.arrangements?.find((a: any) => a.id === arr.id);
-    if (!url && backendArr?.audio_base64) {
-      url = `data:audio/wav;base64,${backendArr.audio_base64}`;
-    }
-
+    // audioUrl is pre-built in StudioScreen: either data:audio/wav;base64,... or a real URL
+    const url = arr.audioUrl ?? recordingUrl;
     if (!url) return;
 
     try {
-      await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+      await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, allowsRecordingIOS: false });
       const { sound } = await Audio.Sound.createAsync(
         { uri: url },
         { shouldPlay: true },

@@ -1,24 +1,20 @@
-# backend/nixpacks.toml — MAESTRO Phase 6
-# Adds: praat (for psola/parselmouth), fluidsynth, soundfont, yt-dlp, ffmpeg
+# backend/nixpacks.toml — MAESTRO Production
+# praat: required for psola (TD-PSOLA pitch shifting)
+# libsndfile + ffmpeg: needed by librosa/soundfile/pydub for audio I/O
 
 [phases.setup]
 nixPkgs = [
   "python311",
   "python311Packages.pip",
   "praat",
-  "fluidsynth",
-  "soundfont-fluid",
   "libsndfile",
   "ffmpeg",
-  "gcc",
 ]
 
 [phases.install]
 cmds = [
   "python3.11 -m pip install --upgrade pip",
   "python3.11 -m pip install -r requirements.txt",
-  "mkdir -p /app/soundfonts",
-  "ln -sf $(find /nix/store -name 'FluidR3_GM.sf2' 2>/dev/null | head -1) /app/soundfonts/FluidR3_GM.sf2 || echo 'Soundfont symlink skipped'",
 ]
 
 [start]

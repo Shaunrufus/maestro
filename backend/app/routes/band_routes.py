@@ -112,18 +112,25 @@ async def analyze_and_generate(
     file:                 UploadFile = File(...),
     custom_chords:        str        = Form(""),    # empty = auto-detect
     selected_styles:      str        = Form(""),    # comma-separated, empty = all
-    selected_instruments: str        = Form(""),    # comma-separated, e.g. "keys,guitar,tabla"
+    selected_instruments: str        = Form(""),    # comma-separated e.g. "keys,guitar,tabla"
+    autotune_strength:    float      = Form(0.75),  # 0.0–1.0, default = Studio
 ):
     """
     One-shot endpoint:
     1. Analyzes the vocal recording
-    2. Uses custom_chords if provided, otherwise uses AI detection
-    3. Generates all arrangement versions (mapping user instruments if requested)
-    4. Returns analysis + arrangements in one response
+    2. Applies PSOLA auto-tune at the user's selected strength
+    3. Uses custom_chords if provided, otherwise uses AI detection
+    4. Generates synthetically distinct arrangements using only the user's selected instruments
+    5. Returns analysis + arrangements (each with real audio_base64) in one response
     """
     audio_bytes = await file.read()
     if len(audio_bytes) > 50 * 1024 * 1024:
         raise HTTPException(413, "File too large")
+
+    # Normalise strength to 0.0–1.0
+    if autotune_strength > 1.0:
+        autotune_strength = autotune_strength / 100.0
+    autotune_strength = max(0.0, min(1.0, autotune_strength))
 
     # Step 1: Analyze vocal
     analysis = await analyze_vocal(audio_bytes)
@@ -137,22 +144,23 @@ async def analyze_and_generate(
     # Step 3: Parse chords
     bpm = analysis.get("bpm", 90)
     key = analysis.get("key_short", "C")
+    key_type = analysis.get("key_type", "major")
     chord_sequence = parse_chord_progression(chord_str, key=key, bpm=bpm)
 
-    # Step 4: Determine styles to generate
+    # Step 4: Determine styles and instruments
     styles = [s.strip() for s in selected_styles.split(",") if s.strip()] or None
     user_instruments = [i.strip() for i in selected_instruments.split(",") if i.strip()] or None
 
-    # Step 4.5: Autotune vocal (NEW Phase 6)
+    # Step 4.5: Autotune vocal using pYIN + PSOLA
     from app.services.autotune import apply_autotune_pipeline
     tuned_audio_bytes = await apply_autotune_pipeline(
-        audio_bytes=audio_bytes,
-        strength=0.75, # 'Studio' preset
-        key=key,
-        scale_type="major" # using major as default fallback
+        audio_bytes = audio_bytes,
+        strength    = autotune_strength,
+        key         = key,
+        scale_type  = key_type,
     )
 
-    # Step 5: Generate arrangements with vocal mixed in
+    # Step 5: Generate arrangements with tuned vocal mixed in
     arrangements = await generate_all_arrangements(
         vocal_bytes          = tuned_audio_bytes,
         chord_sequence       = chord_sequence,

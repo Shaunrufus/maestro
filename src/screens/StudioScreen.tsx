@@ -275,16 +275,16 @@ export default function StudioScreen({ navigation }: any) {
   };
 
   // ─────────────────────────────────────────────────────────────────────
-  // AUTO-TUNE
+  // AUTO-TUNE (real PSOLA via backend)
   // ─────────────────────────────────────────────────────────────────────
   const applyAutoTune = async (uri: string) => {
     setStatus('processing_autotune');
-    setStatusMsg(`Auto-Tune ${autoTunePct}% — processing...`);
 
     try {
       const formData = new FormData();
       formData.append('file', { uri, name: 'recording.m4a', type: 'audio/mp4' } as any);
-      formData.append('strength', String(autoTunePct));
+      // Send as 0.0–1.0 float — backend normalises if > 1
+      formData.append('strength', String(autoTunePct / 100));
       formData.append('key', 'C');
       formData.append('scale', 'major');
 
@@ -297,19 +297,14 @@ export default function StudioScreen({ navigation }: any) {
         const data = await res.json();
         if (data.audio_base64) {
           setTunedAudioB64(data.audio_base64);
-          setStatus('autotune_done');
-          setStatusMsg(`✦ Auto-tuned (${data.avg_correction ?? autoTunePct}% corrected)`);
         }
-      } else {
-        setStatus('autotune_done');
-        setStatusMsg('Auto-tune unavailable — using original');
       }
     } catch (e) {
       console.error('[Studio] Auto-tune failed:', e);
-      setStatus('autotune_done');
-      setStatusMsg('Auto-tune: network error');
     }
 
+    setStatus('autotune_done');
+    // Always proceed to analysis (backend tunes again internally during band gen)
     if (uri) await analyzeVocal(uri);
   };
 
@@ -332,9 +327,9 @@ export default function StudioScreen({ navigation }: any) {
       if (res.ok) {
         const data = await res.json();
         const chords = data.simple_progression ?? ['C', 'G', 'Am', 'F'];
+        const detKey  = data.key_short ?? 'C';
         setDetectedChords(chords);
-        setStatusMsg(`${data.key ?? 'C major'} · ${data.bpm ?? 90} BPM · ${chords.join(' → ')}`);
-        await generateBand(uri, chords, data.bpm ?? 90);
+        await generateBand(uri, chords, data.bpm ?? 90, detKey);
       } else {
         setStatus('ready');
         setStatusMsg('Analysis failed — ready to pick arrangements');
@@ -349,9 +344,8 @@ export default function StudioScreen({ navigation }: any) {
   // ─────────────────────────────────────────────────────────────────────
   // BAND GENERATION
   // ─────────────────────────────────────────────────────────────────────
-  const generateBand = async (uri: string, chords: string[], bpm: number) => {
+  const generateBand = async (uri: string, chords: string[], bpm: number, key: string = 'C') => {
     setStatus('generating_band');
-    setStatusMsg('Generating arrangements...');
 
     try {
       const chordsStr = customChords.trim() || chords.join(' ');
@@ -361,6 +355,8 @@ export default function StudioScreen({ navigation }: any) {
       formData.append('custom_chords', chordsStr);
       formData.append('selected_styles', '');
       formData.append('selected_instruments', selectedInstrs.join(','));
+      // Pass autotune strength so backend auto-tunes the vocal before mixing
+      formData.append('autotune_strength', String(autoTunePct / 100));
 
       const res = await fetch(`${BACKEND_URL}/band/analyze-and-generate`, {
         method: 'POST',
@@ -370,15 +366,22 @@ export default function StudioScreen({ navigation }: any) {
       if (res.ok) {
         const data = await res.json();
         setStatus('ready');
-        setStatusMsg('Generation complete');
-        
+
         navigation.navigate('BandResults', {
           recordingId: generateUUID(),
           recordingUrl: uri,
           analysisResult: {
-            key: data.key ?? 'C',
-            bpm: data.bpm ?? 90,
-            arrangements: data.arrangements ?? []
+            key:          data.analysis?.key ?? data.key ?? 'C major',
+            bpm:          data.analysis?.bpm ?? data.bpm ?? 90,
+            arrangements: (data.arrangements ?? []).map((a: any) => ({
+              id:       a.id,
+              label:    a.label,
+              emoji:    a.emoji,
+              color:    a.color,
+              audioUrl: a.audio_base64 ? `data:audio/wav;base64,${a.audio_base64}` : undefined,
+              has_audio: a.has_audio,
+              metadata: a.metadata ?? { tempo: 90, feel: '', instruments: [], chords: [] },
+            })),
           },
           projectName: 'My Song ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute:'2-digit' })
         });

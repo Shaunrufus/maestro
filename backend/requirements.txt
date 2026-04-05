@@ -1,44 +1,38 @@
-# backend/requirements.txt — MAESTRO Phase 6
+# backend/requirements.txt — MAESTRO Production
+# Pure-Python stack: no FluidSynth, no system-level audio libs required
+# AutoTune: pYIN (librosa) + PSOLA (psola + praat-parselmouth)
+# Synthesis: numpy additive synthesis (zero system deps)
 
-# ── Core API ──────────────────────────────────────────────────────────────
+# ── Core API ────────────────────────────────────────────────────────────────
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 python-multipart==0.0.9
 httpx==0.27.0
 pydantic==2.8.0
 
-# ── AI / LLM ─────────────────────────────────────────────────────────────
+# ── AI / LLM ─────────────────────────────────────────────────────────────────
 anthropic==0.34.2
 
-# ── Audio analysis (existing) ─────────────────────────────────────────────
+# ── Audio analysis ────────────────────────────────────────────────────────────
 librosa==0.10.2
 numpy==1.26.4
 soundfile==0.12.1
 scipy==1.13.1
 
-# ── Auto-tune (NEW Phase 6) ───────────────────────────────────────────────
-# psola: TD-PSOLA pitch correction wrapping Praat (same engine as Auto-Tune)
-# parselmouth: Python binding to Praat (required by psola)
+# ── Auto-tune: pYIN + PSOLA (Praat TD-PSOLA wrapper) ──────────────────────────
+# Research: thewolfsound.com/how-to-auto-tune-your-voice-with-python/
+# psola wraps Praat's TD-PSOLA — same algorithm as Antares Auto-Tune
 psola==0.0.1
 praat-parselmouth==0.4.3
 
-# ── MIDI generation (Phase 5) ────────────────────────────────────────────
-mido==1.3.2
-pretty_midi==0.2.10
-
-# ── Audio mixing (Phase 5) ────────────────────────────────────────────────
+# ── Audio file handling ────────────────────────────────────────────────────────
 pydub==0.25.1
 
-# ── Instrument synthesis (Phase 5) ───────────────────────────────────────
-# Note: pyfluidsynth requires fluidsynth system library
-# Add to nixpacks.toml nixPkgs: "fluidsynth", "soundfont-fluid"
-pyfluidsynth==1.3.3
+# ── MIDI helpers (chord parser) ────────────────────────────────────────────────
+mido==1.3.2
 
-# ── Reference track download (Phase 5) ───────────────────────────────────
-yt-dlp==2024.11.18
-
-# ── Database ─────────────────────────────────────────────────────────────
+# ── Database ──────────────────────────────────────────────────────────────────
 supabase==2.9.0
 
-# ── Utilities ────────────────────────────────────────────────────────────
+# ── Utilities ────────────────────────────────────────────────────────────────
 python-dotenv==1.0.1

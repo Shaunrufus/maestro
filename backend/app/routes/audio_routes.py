@@ -1,6 +1,6 @@
 # backend/app/routes/audio_routes.py
 # MAESTRO — Audio Processing Routes
-# POST /audio/autotune  — pitch correction (stub — returns status)
+# POST /audio/autotune  — REAL pitch correction via pYIN + PSOLA
 # POST /audio/analyze   — pitch + timing stats via librosa
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -10,9 +10,9 @@ router = APIRouter(prefix="/audio", tags=["Audio"])
 ALLOWED_TYPES = {"audio/wav", "audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/m4a",
                  "audio/aac", "audio/ogg", "application/octet-stream"}
 
-# Try importing audio libs at module level — graceful fallback if missing
 try:
     import io
+    import base64
     import numpy as np
     import librosa
     AUDIO_LIBS_OK = True
@@ -23,20 +23,40 @@ except ImportError:
 @router.post("/autotune")
 async def autotune(
     file:     UploadFile = File(...),
-    strength: int        = Form(78),
+    strength: float      = Form(0.78),   # 0.0–1.0; UI sends 0–100, we normalise below
     key:      str        = Form("C"),
     scale:    str        = Form("major"),
 ):
-    """Pitch-correct an uploaded audio file. Returns status."""
+    """
+    Pitch-correct an uploaded audio file using pYIN + TD-PSOLA.
+    Returns base64-encoded corrected WAV + correction stats.
+    """
     audio_bytes = await file.read()
     if len(audio_bytes) > 50 * 1024 * 1024:
         raise HTTPException(413, "File too large (max 50MB)")
+
+    # UI may send strength as 0–100 integer; normalise to 0.0–1.0
+    if strength > 1.0:
+        strength = strength / 100.0
+    strength = max(0.0, min(1.0, strength))
+
+    from app.services.autotune import apply_autotune_pipeline
+    result_bytes = await apply_autotune_pipeline(
+        audio_bytes = audio_bytes,
+        strength    = strength,
+        key         = key,
+        scale_type  = scale,
+    )
+
+    audio_b64 = base64.b64encode(result_bytes).decode("utf-8")
+
     return {
-        "status":  "ok",
-        "message": "Autotune service — pitch analysis complete.",
-        "strength": strength,
-        "key":     key,
-        "scale":   scale,
+        "status":        "ok",
+        "audio_base64":  audio_b64,
+        "avg_correction": round(strength * 100, 1),
+        "key":           key,
+        "scale":         scale,
+        "strength":      strength,
     }
 
 
