@@ -40,6 +40,15 @@ GM_INSTRUMENTS = {
     'french_horn':    60,
 }
 
+FRONTEND_INSTRUMENT_MAP = {
+    'keys':    {'program': GM_INSTRUMENTS['grand_piano'],   'octave_offset': 0,   'role': 'chord'},
+    'guitar':  {'program': GM_INSTRUMENTS['acoustic_guitar'],'octave_offset': 0,   'role': 'chord'},
+    'tabla':   {'program': GM_INSTRUMENTS['banjo'],         'octave_offset':-12,  'role': 'tabla'},
+    'flute':   {'program': GM_INSTRUMENTS['flute'],         'octave_offset': 12,  'role': 'melody'},
+    'sitar':   {'program': GM_INSTRUMENTS['sitar'],         'octave_offset': 0,   'role': 'melody'},
+    'strings': {'program': GM_INSTRUMENTS['strings'],       'octave_offset': 0,   'role': 'strings_high'},
+}
+
 # Rhythm patterns: list of (beat_offset, velocity) per beat in a measure
 # Each beat_offset is in ticks (480 = 1 beat at 480 ppq resolution)
 RHYTHM_PATTERNS: Dict[str, Dict[str, List[tuple]]] = {
@@ -165,7 +174,7 @@ def generate_midi(
     mid.tracks.append(meta_track)
 
     # ── Determine which tracks to build ──────────────────────────────
-    style_config = _get_style_config(style)
+    style_config = _get_style_config(style, extra_instruments)
 
     for track_role, track_config in style_config.items():
         track = _build_track(
@@ -184,8 +193,8 @@ def generate_midi(
     return buf.getvalue()
 
 
-def _get_style_config(style: str) -> Dict[str, Dict]:
-    """Return track configuration for each arrangement style."""
+def _get_style_config(style: str, extra_instruments: Optional[List[str]] = None) -> Dict[str, Dict]:
+    """Return track configuration for each arrangement style, overriding if extra_instruments provided."""
     configs = {
         'bollywood_pop': {
             'piano_chords': {'program': GM_INSTRUMENTS['grand_piano'],  'channel': 0, 'octave_offset': 0, 'role': 'chord'},
@@ -222,7 +231,25 @@ def _get_style_config(style: str) -> Dict[str, Dict]:
             'pad':           {'program': GM_INSTRUMENTS['pad'],           'channel': 2, 'octave_offset': 12, 'role': 'melody'},
         },
     }
-    return configs.get(style, configs['bollywood_pop'])
+    
+    base_config = configs.get(style, configs['bollywood_pop'])
+    if not extra_instruments:
+        return base_config
+
+    custom_config = {}
+    channel_idx = 0
+    for instr_key in extra_instruments:
+        k = instr_key.lower().strip()
+        if k in FRONTEND_INSTRUMENT_MAP:
+            custom_config[k] = {
+                **FRONTEND_INSTRUMENT_MAP[k],
+                'channel': channel_idx
+            }
+            channel_idx += 1
+            if channel_idx == 9: # reserve ch 10 (index 9) for drums
+                channel_idx = 10
+                
+    return custom_config if custom_config else base_config
 
 
 def _build_track(

@@ -300,27 +300,25 @@ async def generate_all_arrangements(
     bpm: int = 90,
     duration_sec: float = 30.0,
     selected_styles: Optional[List[str]] = None,
+    selected_instruments: Optional[List[str]] = None,
 ) -> List[Dict]:
     """
     Generate multiple arrangement versions for a vocal recording.
-
-    Returns a list of dicts:
-    [
-        {
-            "id": "bollywood_pop",
-            "label": "Bollywood Pop",
-            "emoji": "🎬",
-            "desc": "Piano · Tabla · Strings",
-            "audio_base64": "...",
-            "duration_sec": 30.0,
-        },
-        ...
-    ]
     """
     from .midi_generator import generate_midi
 
     styles_to_generate = selected_styles or [a["id"] for a in ARRANGEMENTS]
     results = []
+
+    # Map raw instrument keys from frontend to capitalized names for UI
+    instr_map = {
+        'keys': 'Piano', 'guitar': 'Guitar', 'tabla': 'Tabla',
+        'flute': 'Flute', 'sitar': 'Sitar', 'strings': 'Strings'
+    }
+    
+    user_instr_labels = None
+    if selected_instruments:
+        user_instr_labels = [instr_map.get(i.lower(), i.capitalize()) for i in selected_instruments]
 
     for arr in ARRANGEMENTS:
         if arr["id"] not in styles_to_generate:
@@ -333,6 +331,7 @@ async def generate_all_arrangements(
                 arrangement_style = arr["id"],
                 bpm               = bpm,
                 bars              = max(4, int(duration_sec / (60.0/bpm) / 4) + 1),
+                extra_instruments = selected_instruments,
             )
 
             if not midi_bytes:
@@ -363,8 +362,14 @@ async def generate_all_arrangements(
             # 4. Encode as base64 for API response
             audio_b64 = base64.b64encode(mixed).decode('utf-8')
 
+            # Build metadata, overriding instruments if user selected specific ones
+            meta = dict(arr.get("metadata", {}))
+            if user_instr_labels:
+                meta["instruments"] = user_instr_labels
+
             results.append({
                 **arr,
+                "metadata":     meta,
                 "audio_base64": audio_b64,
                 "mime_type":    "audio/wav",
                 "duration_sec": duration_sec,

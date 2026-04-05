@@ -28,6 +28,13 @@ import {
 import { Audio } from 'expo-av';
 import { playInstrumentChord } from '../services/instrumentService';
 
+function generateUUID() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
 // ─── Constants ─────────────────────────────────────────────────────────────
 const BACKEND_URL  = 'https://maestro-production-c525.up.railway.app';
 const SUPABASE_URL = 'https://cmbfzcqjfbrbioqmvzoh.supabase.co';
@@ -353,6 +360,7 @@ export default function StudioScreen({ navigation }: any) {
       formData.append('file', { uri, name: 'recording.m4a', type: 'audio/mp4' } as any);
       formData.append('custom_chords', chordsStr);
       formData.append('selected_styles', '');
+      formData.append('selected_instruments', selectedInstrs.join(','));
 
       const res = await fetch(`${BACKEND_URL}/band/analyze-and-generate`, {
         method: 'POST',
@@ -365,7 +373,7 @@ export default function StudioScreen({ navigation }: any) {
         setStatusMsg('Generation complete');
         
         navigation.navigate('BandResults', {
-          recordingId: 'demo-id-' + Date.now(),
+          recordingId: generateUUID(),
           recordingUrl: uri,
           analysisResult: {
             key: data.key ?? 'C',

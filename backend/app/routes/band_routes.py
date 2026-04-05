@@ -109,18 +109,17 @@ async def generate_virtual_band(req: GenerateRequest):
 # ─── Full pipeline: analyze + generate in one call ─────────────────────────
 @router.post("/analyze-and-generate")
 async def analyze_and_generate(
-    file:            UploadFile = File(...),
-    custom_chords:   str        = Form(""),    # empty = auto-detect
-    selected_styles: str        = Form(""),    # comma-separated, empty = all
+    file:                 UploadFile = File(...),
+    custom_chords:        str        = Form(""),    # empty = auto-detect
+    selected_styles:      str        = Form(""),    # comma-separated, empty = all
+    selected_instruments: str        = Form(""),    # comma-separated, e.g. "keys,guitar,tabla"
 ):
     """
     One-shot endpoint:
     1. Analyzes the vocal recording
     2. Uses custom_chords if provided, otherwise uses AI detection
-    3. Generates all arrangement versions
+    3. Generates all arrangement versions (mapping user instruments if requested)
     4. Returns analysis + arrangements in one response
-
-    This is the primary endpoint called from the app after recording stops.
     """
     audio_bytes = await file.read()
     if len(audio_bytes) > 50 * 1024 * 1024:
@@ -142,6 +141,7 @@ async def analyze_and_generate(
 
     # Step 4: Determine styles to generate
     styles = [s.strip() for s in selected_styles.split(",") if s.strip()] or None
+    user_instruments = [i.strip() for i in selected_instruments.split(",") if i.strip()] or None
 
     # Step 4.5: Autotune vocal (NEW Phase 6)
     from app.services.autotune import apply_autotune_pipeline
@@ -154,11 +154,12 @@ async def analyze_and_generate(
 
     # Step 5: Generate arrangements with vocal mixed in
     arrangements = await generate_all_arrangements(
-        vocal_bytes     = tuned_audio_bytes,
-        chord_sequence  = chord_sequence,
-        bpm             = bpm,
-        duration_sec    = analysis.get("duration_sec", 30.0),
-        selected_styles = styles,
+        vocal_bytes          = tuned_audio_bytes,
+        chord_sequence       = chord_sequence,
+        bpm                  = bpm,
+        duration_sec         = analysis.get("duration_sec", 30.0),
+        selected_styles      = styles,
+        selected_instruments = user_instruments,
     )
 
     return {
