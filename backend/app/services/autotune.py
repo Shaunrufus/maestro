@@ -308,6 +308,28 @@ def autotune_audio(
         else:
             target_f0[i] = np.nan
 
+    # ── 4b. Apply Glide / Smooth Portamento (Anti-Robot) ──────────────────────
+    if not add_effect and voiced_count > 0:
+        import scipy.ndimage
+        # Extract contiguous voiced segments and smooth them
+        smoothed_target = np.copy(target_f0)
+        
+        in_voice = False
+        start_idx = 0
+        for i in range(len(target_f0) + 1):
+            is_voiced = i < len(target_f0) and not np.isnan(target_f0[i])
+            if is_voiced and not in_voice:
+                in_voice = True
+                start_idx = i
+            elif not is_voiced and in_voice:
+                in_voice = False
+                end_idx = i
+                if end_idx - start_idx > 5:
+                    # Apply gentle Gaussian smoothing to the pitch segment to simulate natural throat glide
+                    segment = target_f0[start_idx:end_idx]
+                    smoothed_target[start_idx:end_idx] = scipy.ndimage.gaussian_filter1d(segment, sigma=2.0)
+        target_f0 = smoothed_target
+
     correction_pct = round(corrected / max(voiced_count, 1) * 100, 1)
     logger.info(f"[AutoTune v3] Corrected {corrected} frames ({correction_pct}%)")
 

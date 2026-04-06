@@ -103,55 +103,65 @@ async def analyze_vocal(audio_bytes: bytes) -> Dict[str, Any]:
             key_type = "minor"
             root_idx  = int(best_minor)
 
-        # ── 4. Detect chord progression (2-bar segments) ───────────────
-        hop_length = 512
-        segment_frames = int(sr * 2.0 / hop_length)  # 2-second segments
-
-        chord_sequence: List[Dict] = []
-        n_frames = chroma.shape[1]
-
-        for seg_start in range(0, n_frames, segment_frames):
-            seg_end   = min(seg_start + segment_frames, n_frames)
-            seg_chroma = np.mean(chroma[:, seg_start:seg_end], axis=1)
-
-            if np.linalg.norm(seg_chroma) < 0.01:
-                continue  # skip silence
-
-            seg_chroma_norm = seg_chroma / (np.linalg.norm(seg_chroma) + 1e-10)
-
-            # Find best matching chord
-            best_chord = "C"
-            best_score = -1
-            for chord_name, template in CHORD_TEMPLATES.items():
-                score = float(np.dot(seg_chroma_norm, template))
-                if score > best_score:
-                    best_score  = score
-                    best_chord  = chord_name
-
-            start_time = librosa.frames_to_time(seg_start, sr=sr, hop_length=hop_length)
-            end_time   = librosa.frames_to_time(seg_end,   sr=sr, hop_length=hop_length)
-
-            chord_sequence.append({
-                "chord":      best_chord,
-                "start":      round(float(start_time), 2),
-                "end":        round(float(end_time), 2),
-                "confidence": round(float(best_score), 3),
-            })
-
-        # ── 5. Simplify to a clean repeating progression ───────────────
-        unique_chords = list(dict.fromkeys([c["chord"] for c in chord_sequence]))[:8]
-        progression_str = " → ".join(unique_chords[:4])
-
-        # ── 6. Detect melody notes (top pitch per frame) ───────────────
+        # ── 4 & 5. Intelligent Melody-to-Chord Engine ───────────────
+        # Slice the entire time sequence into 4 equal blocks (representing a 4-bar phrase)
+        # and assign a chord that fits the primary melody note of that block.
+        
         f0, voiced_flag, _ = librosa.pyin(
             y_harm,
             fmin=librosa.note_to_hz("C2"),
             fmax=librosa.note_to_hz("C6"),
             sr=sr,
         )
+        
+        voiced_frames_total = int(np.sum(voiced_flag))
         voiced_f0 = [f for f, v in zip(f0, voiced_flag) if v and f and not np.isnan(f)]
-        avg_pitch   = float(np.mean(voiced_f0)) if voiced_f0 else 0
-        pitch_note  = librosa.hz_to_note(avg_pitch) if avg_pitch > 0 else "C4"
+        avg_pitch = float(np.mean(voiced_f0)) if voiced_f0 else 0
+        pitch_note = librosa.hz_to_note(avg_pitch).replace('♯', '#') if avg_pitch > 0 else "C4"
+        
+        unique_chords = []
+        chord_sequence: List[Dict] = []
+        num_blocks = 4
+        frames_per_block = len(f0) // num_blocks
+        
+        for i in range(num_blocks):
+            start_frame = i * frames_per_block
+            end_frame = min(start_frame + frames_per_block, len(f0))
+            
+            block_f0 = f0[start_frame:end_frame]
+            block_voiced = voiced_flag[start_frame:end_frame]
+            
+            valid_pitches = block_f0[block_voiced & ~np.isnan(block_f0)]
+            
+            if len(valid_pitches) > 5:
+                # Find the most common pitch class in this block
+                median_hz = np.median(valid_pitches)
+                pitch_str = librosa.hz_to_note(median_hz).replace('♯', '#')
+                # Strip the octave number (e.g. "C#4" -> "C#")
+                root_note_str = ''.join([c for c in pitch_str if not c.isdigit()])
+                
+                # Match to the global key type to determine if Major or Minor
+                chord_quality = "m" if key_type == "minor" else ""
+                
+                # A simple heuristic: if the melody note is the root of an out-of-scale chord,
+                # shift it. But for now, we map the melody root + key quality directly.
+                generated_chord = root_note_str + chord_quality
+            else:
+                # Fallback to key root if silent block
+                generated_chord = NOTE_NAMES[root_idx] + ("m" if key_type == "minor" else "")
+                
+            unique_chords.append(generated_chord)
+            
+            chord_sequence.append({
+                "chord": generated_chord,
+                "start": round(float(librosa.frames_to_time(start_frame, sr=sr, hop_length=512)), 2),
+                "end": round(float(librosa.frames_to_time(end_frame, sr=sr, hop_length=512)), 2),
+                "confidence": 1.0,
+            })
+            
+        progression_str = " → ".join(unique_chords)
+
+        # Pitch extraction is already done above.
 
         # ── 7. Genre hint from BPM + key type ─────────────────────────
         genre_hint = _guess_genre(bpm, key_type)

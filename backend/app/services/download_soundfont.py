@@ -30,10 +30,15 @@ def download_soundfont():
     for url, path in [(SF2_URL, SF2_PATH), (SF2_URL_FALLBACK, SF2_PATH_FALLBACK)]:
         try:
             print(f"[SoundFont] Downloading from {url}...")
-            urllib.request.urlretrieve(url, path)
-            size = os.path.getsize(path)
-            print(f"[SoundFont] Downloaded: {path} ({size / 1e6:.1f} MB)")
-            return path
+            req = urllib.request.urlopen(url, timeout=3.0)
+            if req.status == 200:
+                with open(path, 'wb') as f:
+                    f.write(req.read())
+                size = os.path.getsize(path)
+                print(f"[SoundFont] Downloaded: {path} ({size / 1e6:.1f} MB)")
+                return path
+            else:
+                print(f"[SoundFont] Download failed ({url}): HTTP {req.status}")
         except Exception as e:
             print(f"[SoundFont] Download failed ({url}): {e}")
             continue
