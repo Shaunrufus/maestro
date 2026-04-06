@@ -112,9 +112,9 @@ def snap_pitch_to_scale(f0_hz: float, root: int, scale_name: str) -> float:
     return midi_to_hz(closest)
 
 
-# ─── PSOLA Pitch Shifting ─────────────────────────────────────────────────────
+# ─── STFT Phase Vocoder Block Processing ───────────────────────────────────────
 
-def psola_pitch_shift(
+def stft_block_autotune(
     audio: np.ndarray,
     sr: int,
     source_f0: np.ndarray,
@@ -122,65 +122,84 @@ def psola_pitch_shift(
     hop_length: int = 512,
 ) -> np.ndarray:
     """
-    Pitch-Synchronous Overlap and Add (PSOLA) pitch shifting.
-    Shifts audio from source_f0 to target_f0 frame by frame.
+    STFT Phase Vocoder based Pitch Shifting (Librosa wrap).
+    Instead of per-cycle time-domain resampling which is slow and error-prone,
+    we group frames into contiguous blocks with similar pitch shifts and 
+    use librosa's optimized internal phase vocoder + resampling.
     """
+    import librosa
     n = len(audio)
-    output = np.zeros(n, dtype=np.float64)
-    weight = np.zeros(n, dtype=np.float64)
-    audio = audio.astype(np.float64)
-
+    output = np.zeros(n, dtype=np.float32)
+    weight = np.zeros(n, dtype=np.float32)
+    
     n_frames = min(len(source_f0), len(target_f0))
-    source_f0 = source_f0[:n_frames]
-    target_f0 = target_f0[:n_frames]
-
-    frame_samples = np.arange(n_frames) * hop_length
-    frame_samples = np.clip(frame_samples, 0, n - 1).astype(int)
-
-    for i, center in enumerate(frame_samples):
-        src_f0 = source_f0[i]
-        tgt_f0 = target_f0[i]
-
-        if np.isnan(src_f0) or src_f0 <= 0:
-            half_win = hop_length
+    semitone_shifts = np.zeros(n_frames)
+    
+    # Calculate step shifts
+    for i in range(n_frames):
+        sf0, tf0 = source_f0[i], target_f0[i]
+        if not np.isnan(sf0) and sf0 > 0 and not np.isnan(tf0) and tf0 > 0:
+            semitone_shifts[i] = 12 * np.log2(tf0 / sf0)
         else:
-            half_win = max(int(sr / src_f0), 64)
+            semitone_shifts[i] = 0.0
 
-        start = max(0, center - half_win)
-        end   = min(n, center + half_win)
-        window = audio[start:end].copy()
+    # Group into blocks of constant shift (+/- 0.25 semitones)
+    blocks = []
+    current_shift = semitone_shifts[0]
+    start_frame = 0
+    
+    for i in range(1, n_frames):
+        if abs(semitone_shifts[i] - current_shift) > 0.25:
+            blocks.append((start_frame, i, current_shift))
+            current_shift = semitone_shifts[i]
+            start_frame = i
+    blocks.append((start_frame, n_frames, current_shift))
 
-        if len(window) < 4:
+    # Process each block
+    for start_f, end_f, shift in blocks:
+        start_samp = start_f * hop_length
+        end_samp   = min(end_f * hop_length + hop_length, n)
+        
+        block_len = end_samp - start_samp
+        if block_len < hop_length:
             continue
-
-        taper = np.hanning(len(window))
-        window *= taper
-
-        if (not np.isnan(src_f0) and src_f0 > 0 and
-                not np.isnan(tgt_f0) and tgt_f0 > 0 and
-                abs(tgt_f0 - src_f0) > 0.5):
-            ratio   = src_f0 / tgt_f0
-            new_len = max(4, int(len(window) * ratio))
-            window  = scipy.signal.resample(window, new_len)
-            window *= np.hanning(len(window))
-
-        out_start = max(0, center - len(window) // 2)
-        out_end   = min(n, out_start + len(window))
-        actual    = out_end - out_start
-        if actual <= 0:
-            continue
-
-        output[out_start:out_end] += window[:actual]
-        weight[out_start:out_end] += taper[:actual] ** 2 + 1e-8
-
+            
+        block_audio = audio[start_samp:end_samp]
+        
+        # Apply STFT phase vocoder shift via librosa
+        if abs(shift) > 0.1:
+            try:
+                shifted = librosa.effects.pitch_shift(
+                    block_audio, 
+                    sr=sr, 
+                    n_steps=shift,
+                    bins_per_octave=12,
+                    res_type='soxr_hq' # High quality resample
+                )
+            except Exception:
+                shifted = block_audio # Fallback if block is too small
+        else:
+            shifted = block_audio
+            
+        # Ensure length match
+        if len(shifted) > block_len:
+            shifted = shifted[:block_len]
+        elif len(shifted) < block_len:
+            shifted = np.pad(shifted, (0, block_len - len(shifted)))
+            
+        # Apply crossfade window (tukey-like overlapping)
+        window = np.hanning(block_len).astype(np.float32)
+        if start_f == 0: window[:block_len//2] = 1.0
+        if end_f == n_frames: window[block_len//2:] = 1.0
+        
+        output[start_samp:end_samp] += shifted * window
+        weight[start_samp:end_samp] += window
+        
+    # Normalize weights
     mask = weight > 1e-8
     output[mask] /= weight[mask]
-
-    orig_rms = np.sqrt(np.mean(audio ** 2)) + 1e-8
-    out_rms  = np.sqrt(np.mean(output ** 2)) + 1e-8
-    output  *= orig_rms / out_rms
-
-    return output.astype(np.float32)
+    
+    return output
 
 
 # ─── Main AutoTune Entry Point ────────────────────────────────────────────────
@@ -292,12 +311,12 @@ def autotune_audio(
     correction_pct = round(corrected / max(voiced_count, 1) * 100, 1)
     logger.info(f"[AutoTune v3] Corrected {corrected} frames ({correction_pct}%)")
 
-    # ── 5. PSOLA pitch shifting ────────────────────────────────────────────────
+    # ── 5. STFT Block Phase Vocoder ────────────────────────────────────────────
     try:
-        y_tuned = psola_pitch_shift(y, sr, f0, target_f0, hop_length=hop_length)
-        engine  = "psola"
+        y_tuned = stft_block_autotune(y, sr, f0, target_f0, hop_length=hop_length)
+        engine  = "stft_vocoder"
     except Exception as e:
-        logger.error(f"[AutoTune v3] PSOLA failed: {e} — using librosa fallback")
+        logger.error(f"[AutoTune v3] STFT block failed: {e} — using librosa fallback")
         try:
             # Fallback: global semitone shift via librosa
             semitones = correction_strength * 2  # rough approximation
@@ -340,7 +359,7 @@ def autotune_audio(
 # ─── Legacy shim: keep the old apply_autotune_pipeline API alive ──────────────
 # (band_routes.py and audio_routes.py call these)
 
-AUTOTUNE_ENGINE = "psola_v3"
+AUTOTUNE_ENGINE = "stft_vocoder"
 
 
 def get_autotune_status() -> str:

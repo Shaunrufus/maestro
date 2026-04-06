@@ -108,7 +108,6 @@ export default function StudioScreen({ navigation, route }: any) {
 
   // ── Audio state ───────────────────────────────────────────────────────
   const [localUri,        setLocalUri       ] = useState<string | null>(null);
-  const [tunedAudioB64,   setTunedAudioB64  ] = useState<string | null>(null);
   const [playbackSound,   setPlaybackSound  ] = useState<Audio.Sound | null>(null);
   const [isPlaying,       setIsPlaying      ] = useState(false);
 
@@ -278,7 +277,7 @@ export default function StudioScreen({ navigation, route }: any) {
         staysActiveInBackground: false,
       });
 
-      setTunedAudioB64(null);
+      setAutotuneEngine('');
       setLocalUri(null);
       setDetectedChords([]);
       setStatus('recording');
@@ -332,22 +331,9 @@ export default function StudioScreen({ navigation, route }: any) {
         addEffect: false,  // transparent correction (not T-Pain)
       });
 
-      // Save tuned file URI and engine name
+      // Save tuned file URI and engine name for direct playback and debug
       setLocalUri(result.localUri);
       setAutotuneEngine(result.engine);
-
-      // Read the saved WAV as base64 for the legacy playback path
-      try {
-        const wavFile = new File(result.localUri);
-        const arrayBuf = await wavFile.arrayBuffer();
-        const uint8 = new Uint8Array(arrayBuf);
-        let binary = '';
-        uint8.forEach(b => { binary += String.fromCharCode(b); });
-        const b64 = btoa(binary);
-        setTunedAudioB64(b64);
-      } catch (readErr) {
-        console.warn('[Studio] Could not read tuned WAV as base64:', readErr);
-      }
 
       console.log(`[Studio] AutoTune OK — engine=${result.engine}, key=${result.key}, corrected=${result.autoTunePct}%`);
     } catch (e: any) {
@@ -461,9 +447,7 @@ export default function StudioScreen({ navigation, route }: any) {
     }
 
     let uri: string | null = null;
-    if (tunedAudioB64) {
-      uri = `data:audio/wav;base64,${tunedAudioB64}`;
-    } else if (localUri) {
+    if (localUri) {
       uri = localUri;
     } else {
       Alert.alert('No recording', 'Record something first!');
@@ -612,7 +596,7 @@ export default function StudioScreen({ navigation, route }: any) {
           {/* TRANSPORT */}
           <View style={s.transport}>
             <Pressable style={s.tBtn}><Text style={s.tBtnTx}>⏮</Text></Pressable>
-            <Pressable style={[s.tBtn, isPlaying && { backgroundColor: C.tealBg, borderColor: C.teal }]} onPress={handlePlay} disabled={!localUri && !tunedAudioB64}>
+            <Pressable style={[s.tBtn, isPlaying && { backgroundColor: C.tealBg, borderColor: C.teal }]} onPress={handlePlay} disabled={!localUri}>
               <Text style={s.tBtnTx}>{isPlaying ? '⏸' : '▶'}</Text>
             </Pressable>
 
@@ -639,7 +623,7 @@ export default function StudioScreen({ navigation, route }: any) {
             <View style={s.atHdr}>
               <Text style={s.atLbl}>Auto-Tune</Text>
               <Text style={s.atVal}>{autoTunePct}%</Text>
-              {tunedAudioB64 && <View style={s.tunedBadge}><Text style={s.tunedBadgeTx}>✦ Applied</Text></View>}
+              {autotuneEngine && <View style={s.tunedBadge}><Text style={s.tunedBadgeTx}>✦ Applied</Text></View>}
             </View>
             <View style={s.atBtns}>
               {[0, 25, 50, 75, 100].map(v => (

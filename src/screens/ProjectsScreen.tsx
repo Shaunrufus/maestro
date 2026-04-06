@@ -22,14 +22,28 @@ interface Project {
   bpm: number;
   key: string;
   created_at: string;
-  recording_count?: number;
+}
+
+interface Recording {
+  id: string;
+  project_name: string;
+  file_url: string;
+  duration_ms: number;
+  bpm: number;
+  key: string;
+  auto_tune_pct: number;
+  instruments: string[];
+  created_at: string;
 }
 
 export function ProjectsScreen() {
   const navigation = useNavigation<any>();
   const [projects, setProjects] = useState<Project[]>([]);
+  const [recordings, setRecordings] = useState<Recording[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [expandedProjectId, setExpandedProjectId] = useState<string | null>(null);
+  
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newBpm, setNewBpm] = useState('90');
@@ -38,12 +52,14 @@ export function ProjectsScreen() {
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  const loadProjects = useCallback(async () => {
+  const loadData = useCallback(async () => {
     try {
-      const { data, error } = await db.getProjects('anonymous');
-      if (data && !error) {
-        setProjects(data);
-      }
+      const { data: pData, error: pErr } = await db.getProjects('anonymous');
+      if (pData && !pErr) setProjects(pData as any);
+
+      // Fetch all recordings to group by project globally
+      const { data: rData } = await supabase.from('recordings').select('*');
+      if (rData) setRecordings(rData);
     } catch (e) {
       console.error('[Projects] Load error:', e);
     } finally {
@@ -53,7 +69,7 @@ export function ProjectsScreen() {
   }, []);
 
   useFocusEffect(useCallback(() => {
-    loadProjects();
+    loadData();
     Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
   }, []));
 
@@ -119,7 +135,7 @@ export function ProjectsScreen() {
         contentContainerStyle={s.scroll}
         refreshControl={
           <RefreshControl refreshing={refreshing}
-            onRefresh={() => { setRefreshing(true); loadProjects(); }}
+            onRefresh={() => { setRefreshing(true); loadData(); }}
             tintColor="#D4AF37"
           />
         }
@@ -133,25 +149,50 @@ export function ProjectsScreen() {
             <Text style={s.emptySubtitle}>Tap "+ New" to create your first project</Text>
           </View>
         ) : (
-          projects.map((proj, idx) => (
-            <TouchableOpacity
-              key={proj.id}
-              style={s.projectCard}
-              onPress={() => openProject(proj)}
-              activeOpacity={0.7}
-            >
-              <View style={s.cardLeft}>
-                <View style={[s.cardDot, { backgroundColor: COLORS[idx % COLORS.length] }]} />
-                <View>
-                  <Text style={s.cardName} numberOfLines={1}>{proj.name}</Text>
-                  <Text style={s.cardMeta}>
-                    {proj.key} · {proj.bpm} BPM · {formatDate(proj.created_at)}
-                  </Text>
-                </View>
+          projects.map((proj, idx) => {
+            const isExpanded = expandedProjectId === proj.id;
+            const projectRecordings = recordings.filter(r => r.project_name === proj.name);
+            
+            return (
+              <View key={proj.id} style={s.projectWrap}>
+                <TouchableOpacity
+                  style={s.projectCard}
+                  onPress={() => setExpandedProjectId(isExpanded ? null : proj.id)}
+                  activeOpacity={0.7}
+                >
+                  <View style={s.cardLeft}>
+                    <View style={[s.cardDot, { backgroundColor: COLORS[idx % COLORS.length] }]} />
+                    <View>
+                      <Text style={s.cardName} numberOfLines={1}>{proj.name}</Text>
+                      <Text style={s.cardMeta}>
+                        {projectRecordings.length} Recordings · {formatDate(proj.created_at)}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={s.cardArrow}>{isExpanded ? '↓' : '→'}</Text>
+                </TouchableOpacity>
+                
+                {isExpanded && (
+                  <View style={s.expandedArea}>
+                    <TouchableOpacity style={s.studioBtn} onPress={() => openProject(proj)}>
+                      <Text style={s.studioBtnTxt}>+ Enter Studio</Text>
+                    </TouchableOpacity>
+                    
+                    {projectRecordings.length === 0 ? (
+                      <Text style={s.noRecTxt}>No recordings in this project yet.</Text>
+                    ) : (
+                      projectRecordings.map(rec => (
+                        <View key={rec.id} style={s.recCard}>
+                          <Text style={s.recName}>Recording (ID: {rec.id.substring(0,4)})</Text>
+                          <Text style={s.recMeta}>{rec.bpm} BPM · Tune: {rec.auto_tune_pct}%</Text>
+                        </View>
+                      ))
+                    )}
+                  </View>
+                )}
               </View>
-              <Text style={s.cardArrow}>→</Text>
-            </TouchableOpacity>
-          ))
+            );
+          })
         )}
       </ScrollView>
 
@@ -237,17 +278,36 @@ const s = StyleSheet.create({
   emptyTitle: { color: '#F0E6C8', fontSize: 20, fontWeight: '700', marginBottom: 6 },
   emptySubtitle: { color: 'rgba(240,230,200,0.4)', fontSize: 14 },
 
+  projectWrap: { marginBottom: 10 },
   projectCard: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 14, padding: 16, marginBottom: 10,
+    borderRadius: 14, padding: 16,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
   },
   cardLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
   cardDot: { width: 10, height: 10, borderRadius: 5, marginRight: 12 },
   cardName: { color: '#F0E6C8', fontSize: 16, fontWeight: '700', marginBottom: 3 },
   cardMeta: { color: 'rgba(240,230,200,0.4)', fontSize: 12 },
-  cardArrow: { color: 'rgba(240,230,200,0.3)', fontSize: 18 },
+  cardArrow: { color: '#D4AF37', fontSize: 16, fontWeight: '800' },
+  
+  expandedArea: {
+    padding: 12, backgroundColor: 'rgba(0,0,0,0.4)',
+    borderBottomLeftRadius: 14, borderBottomRightRadius: 14,
+    borderWidth: 1, borderTopWidth: 0, borderColor: 'rgba(255,255,255,0.06)',
+  },
+  studioBtn: {
+    paddingVertical: 10, backgroundColor: 'rgba(212,175,55,0.1)',
+    borderRadius: 8, alignItems: 'center', marginBottom: 10,
+  },
+  studioBtnTxt: { color: '#D4AF37', fontWeight: '700' },
+  noRecTxt: { color: 'rgba(240,230,200,0.4)', fontSize: 12, textAlign: 'center', marginVertical: 10 },
+  recCard: {
+    padding: 10, backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 8, marginBottom: 6,
+  },
+  recName: { color: '#F0E6C8', fontSize: 14, fontWeight: '600' },
+  recMeta: { color: 'rgba(240,230,200,0.5)', fontSize: 11, marginTop: 4 },
 
   modalOverlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.85)',

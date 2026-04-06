@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity,
+  View, Text, StyleSheet, FlatList, SectionList, TouchableOpacity,
   ActivityIndicator, Animated, Dimensions, RefreshControl,
   Alert,
 } from 'react-native';
@@ -500,6 +500,16 @@ export function MySongsScreen() {
     );
   }
 
+  // ── Group by Project ──
+  const groupedData = Object.values(
+    recordings.reduce((acc, rec) => {
+      const proj = rec.project_name || 'Untitled Recordings';
+      if (!acc[proj]) acc[proj] = { title: proj, data: [] };
+      acc[proj].data.push(rec);
+      return acc;
+    }, {} as Record<string, { title: string; data: Recording[] }>)
+  );
+
   return (
     <View style={s.root}>
       {/* Header */}
@@ -509,13 +519,18 @@ export function MySongsScreen() {
       >
         <Text style={s.headerTitle}>My Songs</Text>
         <Text style={s.headerSub}>
-          {recordings.length} {recordings.length === 1 ? 'recording' : 'recordings'}
+          {recordings.length} {recordings.length === 1 ? 'recording' : 'recordings'} in {groupedData.length} projects
         </Text>
       </LinearGradient>
 
-      <FlatList
-        data={recordings}
+      <SectionList
+        sections={groupedData}
         keyExtractor={item => item.id}
+        renderSectionHeader={({ section: { title } }) => (
+          <View style={s.sectionHeader}>
+            <Text style={s.sectionTitle}>{title}</Text>
+          </View>
+        )}
         renderItem={({ item }) => (
           <SongCard
             item={item}
@@ -560,4 +575,11 @@ const s = StyleSheet.create({
   },
   headerTitle: { color: '#D4AF37', fontSize: 28, fontWeight: '800', letterSpacing: 0.5 },
   headerSub: { color: 'rgba(212,175,55,0.45)', fontSize: 12, marginTop: 3 },
+  sectionHeader: {
+    paddingHorizontal: 20, paddingTop: 16, paddingBottom: 10,
+    backgroundColor: '#0B0B12',
+  },
+  sectionTitle: {
+    color: '#D4AF37', fontSize: 16, fontWeight: '700', letterSpacing: 0.5,
+  },
 });
