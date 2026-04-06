@@ -30,6 +30,9 @@ import {
 import { Audio } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { playInstrumentChord } from '../services/instrumentService';
+import { db } from '../services/supabase';
+import { applyAutotune } from '../services/autotune_client';
+import { File, Paths } from 'expo-file-system';
 
 function generateUUID() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -113,6 +116,7 @@ export default function StudioScreen({ navigation, route }: any) {
   const [status,          setStatus         ] = useState<StudioStatus>('idle');
   const [statusMsg,       setStatusMsg      ] = useState('');
   const [autoTunePct,     setAutoTunePct    ] = useState(78);
+  const [autotuneEngine,  setAutotuneEngine ] = useState<string>('');  // 'psola'|'librosa_shift'|'passthrough'
 
   // ── Instruments ────────────────────────────────────────────────────────
   const [selectedInstrs,  setSelectedInstrs ] = useState<InstrKey[]>(['keys']);
@@ -238,6 +242,24 @@ export default function StudioScreen({ navigation, route }: any) {
     const name = tempProjectName.trim() || `Session ${new Date().toLocaleDateString()}`;
     setProjectName(name);
     setShowProjectPrompt(false);
+    
+    // Create the project in the database if it's new
+    if (!projectId) {
+      try {
+        const { data } = await db.createProject({
+          userId: 'anonymous',
+          name,
+          bpm: 90,
+          key: 'C',
+        });
+        if (data && data.id) {
+          setProjectId(data.id);
+        }
+      } catch (e) {
+        console.error('[Studio] Failed to push project to db:', e);
+      }
+    }
+
     // Small delay to let modal close
     setTimeout(() => startRecording(), 300);
   };
@@ -298,36 +320,43 @@ export default function StudioScreen({ navigation, route }: any) {
   };
 
   // ─────────────────────────────────────────────────────────────────────
-  // AUTO-TUNE (real PSOLA via backend)
+  // AUTO-TUNE — uses new autotune_client.ts (PYIN + PSOLA, no praat)
   // ─────────────────────────────────────────────────────────────────────
   const applyAutoTune = async (uri: string) => {
     setStatus('processing_autotune');
+    setStatusMsg('Applying auto-tune...');
 
     try {
-      const formData = new FormData();
-      formData.append('file', { uri, name: 'recording.m4a', type: 'audio/mp4' } as any);
-      // Send as 0.0–1.0 float — backend normalises if > 1
-      formData.append('strength', String(autoTunePct / 100));
-      formData.append('key', 'C');
-      formData.append('scale', 'major');
-
-      const res = await fetch(`${BACKEND_URL}/audio/autotune`, {
-        method: 'POST',
-        body: formData,
+      const result = await applyAutotune(uri, {
+        correctionStrength: autoTunePct / 100,
+        addEffect: false,  // transparent correction (not T-Pain)
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        if (data.audio_base64) {
-          setTunedAudioB64(data.audio_base64);
-        }
+      // Save tuned file URI and engine name
+      setLocalUri(result.localUri);
+      setAutotuneEngine(result.engine);
+
+      // Read the saved WAV as base64 for the legacy playback path
+      try {
+        const wavFile = new File(result.localUri);
+        const arrayBuf = await wavFile.arrayBuffer();
+        const uint8 = new Uint8Array(arrayBuf);
+        let binary = '';
+        uint8.forEach(b => { binary += String.fromCharCode(b); });
+        const b64 = btoa(binary);
+        setTunedAudioB64(b64);
+      } catch (readErr) {
+        console.warn('[Studio] Could not read tuned WAV as base64:', readErr);
       }
-    } catch (e) {
-      console.error('[Studio] Auto-tune failed:', e);
+
+      console.log(`[Studio] AutoTune OK — engine=${result.engine}, key=${result.key}, corrected=${result.autoTunePct}%`);
+    } catch (e: any) {
+      console.error('[Studio] Auto-tune failed:', e.message);
+      // Non-fatal: proceed with original recording
     }
 
     setStatus('autotune_done');
-    // Always proceed to analysis (backend tunes again internally during band gen)
+    // Always proceed to analysis
     if (uri) await analyzeVocal(uri);
   };
 

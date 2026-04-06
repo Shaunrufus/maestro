@@ -1,38 +1,34 @@
-# backend/requirements.txt — MAESTRO Production
-# Pure-Python stack: no FluidSynth, no system-level audio libs required
-# AutoTune: pYIN (librosa) + PSOLA (psola + praat-parselmouth)
-# Synthesis: numpy additive synthesis (zero system deps)
+# backend/requirements.txt — MAESTRO Production v3
+# Clean deps: NO praat-parselmouth, NO psola package.
+# All pitch correction is pure Python inside autotune.py.
+# Pinned to numpy 1.x for librosa compatibility.
 
-# ── Core API ────────────────────────────────────────────────────────────────
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
+# ── Web Framework ──────────────────────────────────────────────────────────────
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
 python-multipart==0.0.9
-httpx==0.27.0
-pydantic==2.8.0
 
-# ── AI / LLM ─────────────────────────────────────────────────────────────────
-anthropic==0.34.2
+# ── Audio Processing ───────────────────────────────────────────────────────────
+librosa==0.10.2                    # pyin pitch detection, key/BPM analysis
+soundfile==0.12.1                  # WAV read/write
+numpy==1.26.4                      # MUST be 1.x for librosa + scipy compatibility
+scipy==1.13.1                      # Signal processing for PSOLA
+audioread==3.0.1                   # Backend for librosa to decode m4a via ffmpeg
 
-# ── Audio analysis ────────────────────────────────────────────────────────────
-librosa==0.10.2
-numpy==1.26.4
-soundfile==0.12.1
-scipy==1.13.1
+# ── MIDI / Music ───────────────────────────────────────────────────────────────
+mido==1.3.2                        # MIDI file generation
 
-# ── Auto-tune: pYIN + PSOLA (Praat TD-PSOLA wrapper) ──────────────────────────
-# Research: thewolfsound.com/how-to-auto-tune-your-voice-with-python/
-# psola wraps Praat's TD-PSOLA — same algorithm as Antares Auto-Tune
-psola==0.0.1
-praat-parselmouth==0.4.3
+# ── AI / HTTP ─────────────────────────────────────────────────────────────────
+httpx==0.27.0                      # Async HTTP for HuggingFace MusicGen API
+aiofiles==23.2.1                   # Async file handling
+openai==1.30.1                     # OpenRouter (GURU AI) via base_url override
 
-# ── Audio file handling ────────────────────────────────────────────────────────
-pydub==0.25.1
+# ── Database / Storage ─────────────────────────────────────────────────────────
+supabase==2.5.1
+storage3==0.7.7
 
-# ── MIDI helpers (chord parser) ────────────────────────────────────────────────
-mido==1.3.2
-
-# ── Database ──────────────────────────────────────────────────────────────────
-supabase==2.9.0
-
-# ── Utilities ────────────────────────────────────────────────────────────────
+# ── Utilities ──────────────────────────────────────────────────────────────────
 python-dotenv==1.0.1
+pydantic==2.7.1
+pydantic-settings==2.3.1
+tenacity==8.3.0                    # Retry logic for API calls

@@ -7,9 +7,8 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Animated, Dimensions, ActivityIndicator, Alert,
+  Animated, Dimensions, ActivityIndicator, Alert, PanResponder
 } from 'react-native';
-import RNSlider from '@react-native-community/slider';
 import { Audio } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -22,6 +21,63 @@ interface RouteParams {
   projectName?: string;
   recordingId?: string;
 }
+
+// ─── Custom Pure JS Slider ───────────────────────────────────────────────────
+const CustomSlider: React.FC<{
+  minimumValue?: number;
+  maximumValue?: number;
+  value: number;
+  onValueChange: (v: number) => void;
+  style?: any;
+  thumbTintColor?: string;
+  minimumTrackTintColor?: string;
+  maximumTrackTintColor?: string;
+}> = ({
+  minimumValue = 0, maximumValue = 1, value, onValueChange, style,
+  thumbTintColor = '#D4AF37', minimumTrackTintColor = '#D4AF37', maximumTrackTintColor = 'rgba(255,255,255,0.1)'
+}) => {
+  const [width, setWidth] = useState(0);
+
+  const range = maximumValue - minimumValue;
+  const clampedValue = Math.max(minimumValue, Math.min(maximumValue, value));
+  const percent = range === 0 ? 0 : (clampedValue - minimumValue) / range;
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderMove: (evt, gestureState) => {
+        if (width === 0) return;
+        const newPct = Math.max(0, Math.min(1, (gestureState.moveX - 40) / width)); // rough approx
+        onValueChange(minimumValue + newPct * range);
+      },
+      onPanResponderGrant: (evt) => {
+        if (width === 0) return;
+        const newPct = Math.max(0, Math.min(1, evt.nativeEvent.locationX / width));
+        onValueChange(minimumValue + newPct * range);
+      }
+    })
+  ).current;
+
+  return (
+    <View style={[{ height: 40, justifyContent: 'center' }, style]} onLayout={e => setWidth(e.nativeEvent.layout.width)}>
+      <View style={{ height: 4, borderRadius: 2, backgroundColor: maximumTrackTintColor, width: '100%', overflow: 'hidden' }}>
+        <View style={{ height: 4, backgroundColor: minimumTrackTintColor, width: `${percent * 100}%` }} />
+      </View>
+      <View
+        {...panResponder.panHandlers}
+        style={[ StyleSheet.absoluteFillObject, { backgroundColor: 'transparent' } ]}
+      />
+      <View style={{
+        position: 'absolute',
+        left: `${percent * 100}%`,
+        width: 16, height: 16, borderRadius: 8,
+        backgroundColor: thumbTintColor,
+        marginLeft: -8, marginTop: 12,
+        shadowColor: thumbTintColor, shadowOpacity: 0.8, shadowRadius: 4, elevation: 4
+      }} />
+    </View>
+  );
+};
 
 // ─── Waveform Component ──────────────────────────────────────────────────────
 const Waveform: React.FC<{
@@ -63,7 +119,7 @@ const Waveform: React.FC<{
       </View>
       {/* Trim handles */}
       <View style={wf.trimRow}>
-        <RNSlider
+        <CustomSlider
           style={{ flex: 1, marginRight: 8 }}
           minimumValue={0} maximumValue={1}
           value={trimStart}
@@ -72,7 +128,7 @@ const Waveform: React.FC<{
           maximumTrackTintColor="rgba(255,255,255,0.1)"
           thumbTintColor="#D4AF37"
         />
-        <RNSlider
+        <CustomSlider
           style={{ flex: 1, marginLeft: 8 }}
           minimumValue={0} maximumValue={1}
           value={trimEnd}
@@ -110,7 +166,7 @@ const EffectSlider: React.FC<{
 }> = ({ label, value, onChange, unit = '%', min = 0, max = 100, icon }) => (
   <View style={fx.row}>
     <Text style={fx.label}>{icon} {label}</Text>
-    <RNSlider
+    <CustomSlider
       style={fx.slider}
       minimumValue={min} maximumValue={max}
       value={value} onValueChange={onChange}
