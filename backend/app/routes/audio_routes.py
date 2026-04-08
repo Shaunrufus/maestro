@@ -228,13 +228,41 @@ def _arrangement_feel(label: str) -> str:
     return m.get(label, "Pop")
 
 
-# ─── STREAM ARRANGEMENTS ──────────────────────────────────────────────────────
+# ─── STATUS CHECK (MUST COME BEFORE /{label} TO AVOID ROUTE MATCHING COLLISION) ──
+
+@router.get("/arrangements/{session_id}/status")
+async def arrangement_status(session_id: str):
+    """
+    Check how many arrangements are ready.
+    Returns {"ready": N, "total": 6, "status": "rendering", ...}
+    """
+    logger.info(f"[/status] Checking session {session_id}")
+    session = _sessions.get(session_id)
+    if session is None:
+        # Session doesn't exist yet
+        return {"ready": 0, "total": 6, "status": "not_found", "session_id": session_id}
+    
+    ready = len(session)  # Number of arrangement WAVs ready
+    total = 6  # We always generate 6
+    status = "complete" if ready == total else "rendering" if ready == 0 else "partial"
+    
+    logger.info(f"[/status] Session {session_id}: {ready}/{total} ready")
+    return {
+        "ready": ready, 
+        "total": total, 
+        "status": status,
+        "session_id": session_id,
+        "labels": list(session.keys()) if session else []
+    }
+
+
+# ─── STREAM ARRANGEMENTS (COMES AFTER /status TO AVOID CONFLICTS) ────────────────
 
 @router.get("/arrangements/{session_id}/{label}")
 async def stream_arrangement(session_id: str, label: str):
     """
     Stream a rendered arrangement WAV.
-    Poll this after /upload-and-process — arrangements take ~3-8 seconds to render.
+    Poll /status first — arrangements take ~3-8 seconds to render.
     Returns 404 while still rendering, 200 + WAV when ready.
     """
     label = label.upper()
@@ -257,27 +285,6 @@ async def stream_arrangement(session_id: str, label: str):
             "Cache-Control": "max-age=600",
         }
     )
-
-
-@router.get("/arrangements/{session_id}/status")
-async def arrangement_status(session_id: str):
-    """Check how many arrangements are ready."""
-    session = _sessions.get(session_id)
-    if session is None:
-        # Session doesn't exist
-        return {"ready": 0, "total": 6, "status": "not_found", "session_id": session_id}
-    
-    ready = len(session)  # Number of arrangement WAVs ready
-    total = 6  # We always generate 6
-    status = "complete" if ready == total else "rendering" if ready == 0 else "partial"
-    
-    return {
-        "ready": ready, 
-        "total": total, 
-        "status": status,
-        "session_id": session_id,
-        "labels": list(session.keys())  # Which ones are ready
-    }
 
 
 # ─── STANDALONE AUTOTUNE ──────────────────────────────────────────────────────
