@@ -228,6 +228,16 @@ export default function StudioScreen({ navigation, route }: any) {
     }
   }, [status]);
 
+  // Sync route params to state whenever they change (user navigates with different project)
+  useEffect(() => {
+    if (route?.params?.projectId) {
+      setProjectId(route.params.projectId);
+    }
+    if (route?.params?.projectName) {
+      setProjectName(route.params.projectName);
+    }
+  }, [route?.params?.projectId, route?.params?.projectName]);
+
   // Load project metadata when projectId is provided via route params
   useEffect(() => {
     if (!projectId) return; // No project to load
@@ -253,6 +263,17 @@ export default function StudioScreen({ navigation, route }: any) {
     
     loadProjectData();
   }, [projectId]);
+
+  // Cleanup recording when screen unmounts to prevent conflicts on next mount
+  useEffect(() => {
+    return () => {
+      if (recording) {
+        recording.stopAndUnloadAsync().catch((err) => {
+          console.log('[Studio] Unmount cleanup:', err);
+        });
+      }
+    };
+  }, [recording]);
 
   // ─────────────────────────────────────────────────────────────────────
   // RECORD HANDLER
@@ -303,11 +324,15 @@ export default function StudioScreen({ navigation, route }: any) {
       if (recording) {
         try {
           await recording.stopAndUnloadAsync();
+          await new Promise(resolve => setTimeout(resolve, 200)); // Wait for full cleanup
         } catch (err) {
           console.log('[Studio] Previous recording cleanup:', err);
         }
         setRecording(null);
       }
+
+      // Add safety check - wait a bit more to ensure cleanup is done
+      await new Promise(resolve => setTimeout(resolve, 100));
 
       const { granted } = await Audio.requestPermissionsAsync();
       if (!granted) {

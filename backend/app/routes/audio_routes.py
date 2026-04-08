@@ -285,8 +285,14 @@ async def autotune_standalone(
     t0 = time.time()
     try:
         wav_bytes, meta = autotune_audio(
-            audio_bytes, ext, retune_speed, flex_tune, humanize, add_effect,
-            scale_name=scale, root_note=root_note
+            audio_bytes, 
+            ext, 
+            retune_speed=retune_speed, 
+            flex_tune=flex_tune, 
+            humanize=humanize,
+            scale_name=scale, 
+            root_note=root_note,
+            add_effect=add_effect
         )
     except Exception as e:
         logger.error(f"[/autotune] AutoTune failed: {str(e)}")
