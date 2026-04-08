@@ -59,10 +59,13 @@ export async function applyAutotune(
 
   const formData = new FormData();
   formData.append('file', { uri: localAudioUri, name: filename, type: mimeType } as any);
-  formData.append('correction_strength', String(correctionStrength));
+  formData.append('retune_speed', String(correctionStrength * 100)); // Convert 0-1 to 0-100
+  formData.append('flex_tune', '25.0');
+  formData.append('humanize', '30.0');
   if (scale)      formData.append('scale',     scale);
   if (rootNote !== undefined) formData.append('root_note', String(rootNote));
   formData.append('add_effect', String(addEffect));
+  formData.append('return_base64', 'true');
 
   // ── 2. POST to backend ─────────────────────────────────────────────────────
   console.log('[AutoTune] →', BACKEND_URL + '/audio/autotune');
@@ -89,23 +92,26 @@ export async function applyAutotune(
     throw new Error('[AutoTune] Backend returned no audio_base64');
   }
 
+  // Extract metadata (nested in response)
+  const meta = data.metadata || {};
+
   // ── 3. Save WAV locally ───────────────────────────────────────────────────
   const timestamp  = Date.now();
   const cacheDir   = FileSystem.cacheDirectory || FileSystem.documentDirectory;
   const localPath  = `${cacheDir}autotuned_${timestamp}.wav`;
-  await FileSystem.writeAsStringAsync(localPath, data.audio_base64, { encoding: FileSystem.EncodingType.Base64 });
+  await FileSystem.writeAsStringAsync(localPath, data.audio_base64, { encoding: 'base64' });
 
-  console.log(`[AutoTune] ✓ ${data.autotune_engine} | key=${data.key} | ${data.avg_correction}% corrected`);
+  console.log(`[AutoTune] ✓ ${meta.engine} | key=${meta.key} | ${meta.auto_tune_pct}% corrected`);
   console.log('[AutoTune] Saved to:', localPath);
 
   return {
     localUri:     localPath,
-    key:          data.key          ?? '?',
-    scale:        data.scale        ?? 'major',
-    autoTunePct:  data.avg_correction ?? 0,
-    vocalPct:     data.vocal_pct    ?? 0,
-    durationS:    data.duration_s   ?? 0,
-    engine:       data.autotune_engine ?? 'psola_v3',
+    key:          meta.key          ?? '?',
+    scale:        meta.scale        ?? 'major',
+    autoTunePct:  meta.auto_tune_pct ?? 0,
+    vocalPct:     meta.vocal_pct    ?? 0,
+    durationS:    meta.duration_s   ?? 0,
+    engine:       meta.engine       ?? 'pyin+phase_vocoder',
     processTimeS: data.process_time_s  ?? 0,
   };
 }

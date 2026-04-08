@@ -288,8 +288,9 @@ async def autotune_standalone(
             audio_bytes, ext, retune_speed, flex_tune, humanize, add_effect,
             scale_name=scale, root_note=root_note
         )
-    except (ValueError, RuntimeError) as e:
-        raise HTTPException(422, str(e))
+    except Exception as e:
+        logger.error(f"[/autotune] AutoTune failed: {str(e)}")
+        raise HTTPException(500, f"AutoTune processing failed: {str(e)}")
 
     if return_base64:
         return {
