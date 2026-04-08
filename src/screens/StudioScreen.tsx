@@ -321,11 +321,119 @@ export default function StudioScreen({ navigation, route }: any) {
       setRecording(null);
       setLocalUri(uri);
 
-      if (uri) await applyAutoTune(uri);
+      if (uri) {
+        // OLD FLOW: Apply existing autotune_client (keep for compatibility)
+        await applyAutoTune(uri);
+        
+        // NEW FLOW: Upload to new backend for advanced analysis + arrangements
+        await uploadToAdvancedBackend(uri);
+      }
     } catch (e) {
       console.error('[Studio] Stop recording failed:', e);
       setStatus('idle');
     }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────
+  // NEW: Upload to Advanced Backend with FormData
+  // ─────────────────────────────────────────────────────────────────────
+  const uploadToAdvancedBackend = async (recordingUri: string) => {
+    try {
+      setStatus('processing_autotune');
+      setProcessingMsg('🚀 Sending to AI engine...');
+
+      // Read file bytes asynchronously
+      const fileBytes = await FileSystem.readAsStringAsync(recordingUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      // Build FormData with actual file bytes
+      const formData = new FormData();
+      formData.append('file', {
+        uri: recordingUri,
+        name: 'recording.m4a',
+        type: 'audio/mp4',
+      } as any);
+      formData.append('retune_speed', '40');
+      formData.append('flex_tune', '25');
+      formData.append('humanize', '30');
+      formData.append('genre', 'pop');
+      formData.append('jazz_factor', '0');
+      formData.append('happy_factor', '0.5');
+
+      // POST to /audio/upload-and-process
+      const response = await fetch(`${BACKEND_URL}/audio/upload-and-process`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Upload failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('[Advanced Backend] Response:', data);
+
+      // Store session ID for arrangement polling
+      setSessionId(data.session_id);
+      setProcessingMsg('💾 Analyzing vocals...');
+
+      // Update detected chords from analysis
+      if (data.analysis?.progression_names) {
+        setDetectedChords(data.analysis.progression_names);
+      }
+
+      // Start polling for arrangements
+      if (data.session_id) {
+        startArrangementPolling(data.session_id);
+      }
+
+      // Update status
+      setStatus('analyzing');
+      setAutoTunePct(data.autotune_meta?.auto_tune_pct || 78);
+
+    } catch (e) {
+      console.error('[Advanced Backend] Upload failed:', e);
+      // Fallback: continue with old flow
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Poll for Arrangements every 2 seconds
+  // ─────────────────────────────────────────────────────────────────────
+  const startArrangementPolling = async (sid: string) => {
+    setProcessingMsg('🎹 Generating arrangements...');
+    let attempts = 0;
+    const maxAttempts = 40; // 80 seconds max
+
+    const poll = setInterval(async () => {
+      attempts++;
+      if (attempts > maxAttempts) {
+        clearInterval(poll);
+        setProcessingMsg('⏱️ Arrangements timed out');
+        return;
+      }
+
+      try {
+        // Check status endpoint first
+        const statusRes = await fetch(`${BACKEND_URL}/audio/arrangements/${sid}/status`);
+        if (!statusRes.ok) return;
+
+        const statusData = await statusRes.json();
+        const { ready, total } = statusData;
+
+        if (ready >= total) {
+          clearInterval(poll);
+          setProcessingMsg('✅ Arrangements ready!');
+          setStatus('ready');
+          // Optionally fetch all 6 arrangements
+        } else {
+          setProcessingMsg(`🎹 ${ready}/${total} arrangements ready...`);
+        }
+      } catch (e) {
+        console.log('[Polling] Status check:', e);
+      }
+    }, 2000);
   };
 
   // ─────────────────────────────────────────────────────────────────────
