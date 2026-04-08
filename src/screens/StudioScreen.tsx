@@ -15,7 +15,6 @@ import {
   Easing,
   Modal,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -27,6 +26,7 @@ import {
   Platform,
   ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -300,6 +300,16 @@ export default function StudioScreen({ navigation, route }: any) {
 
   const startRecording = async () => {
     try {
+      // ── Clean up any previous recording before starting new one ─────────────
+      if (recording) {
+        try {
+          await recording.stopAndUnloadAsync();
+        } catch (err) {
+          console.log('[Studio] Previous recording cleanup:', err);
+        }
+        setRecording(null);
+      }
+
       const { granted } = await Audio.requestPermissionsAsync();
       if (!granted) {
         Alert.alert('Permission needed', 'Allow microphone access to record.');
