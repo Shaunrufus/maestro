@@ -520,6 +520,36 @@ export default function StudioScreen({ navigation, route }: any) {
   };
 
   // ─────────────────────────────────────────────────────────────────────
+  // SAVE RECORDING TO DATABASE
+  // ─────────────────────────────────────────────────────────────────────
+  const saveRecordingToDb = async (recordingUri: string, analysisData: any) => {
+    try {
+      if (!projectId) {
+        console.log('[Studio] No projectId - skipping recording save');
+        return;
+      }
+
+      const { error } = await supabase.from('recordings').insert({
+        id: generateUUID(),
+        project_id: projectId,
+        project_name: projectName,
+        file_url: recordingUri,
+        duration_ms: 0, // Could be calculated from audio
+        bpm: analysisData?.bpm ?? 90,
+        key: analysisData?.key ?? 'C',
+        auto_tune_pct: autoTunePct,
+        instruments: selectedInstrs,
+        created_at: new Date().toISOString(),
+      });
+
+      if (error) throw error;
+      console.log(`[Studio] Recording saved to project "${projectName}"`);
+    } catch (e) {
+      console.error('[Studio] Failed to save recording:', e);
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────
   // VOCAL ANALYSIS
   // ─────────────────────────────────────────────────────────────────────
   const analyzeVocal = async (uri: string) => {
@@ -540,6 +570,13 @@ export default function StudioScreen({ navigation, route }: any) {
         const chords = data.simple_progression ?? ['C', 'G', 'Am', 'F'];
         const detKey  = data.key_short ?? 'C';
         setDetectedChords(chords);
+        
+        // Save recording to database with project association
+        await saveRecordingToDb(uri, {
+          key: detKey,
+          bpm: data.bpm ?? 90,
+        });
+        
         await generateBand(uri, chords, data.bpm ?? 90, detKey);
       } else {
         setStatus('ready');
