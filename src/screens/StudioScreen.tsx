@@ -649,6 +649,9 @@ export default function StudioScreen({ navigation, route }: any) {
               <Pressable onPress={() => setShowLyrics(!showLyrics)} style={s.lyricBtn}>
                 <Text style={s.lyricBtnTx}>📝</Text>
               </Pressable>
+              <Pressable onPress={() => setShowTranslation(!showTranslation)} style={s.lyricBtn}>
+                <Text style={s.lyricBtnTx}>🌍</Text>
+              </Pressable>
               <View style={s.avatar}>
                 <Text style={s.avatarTx}>S</Text>
               </View>
@@ -861,6 +864,30 @@ export default function StudioScreen({ navigation, route }: any) {
               textAlignVertical="top"
             />
           )}
+        </Animated.View>
+      )}
+
+      {/* ENGLISH TRANSLATION MODAL */}
+      {showTranslation && (
+        <Animated.View style={[s.lyricsWin, { transform: pan.getTranslateTransform() }]}>
+          <View {...panResponder.panHandlers} style={s.lyricsDragBar}>
+            <View style={s.lyricsHandle} />
+            <View style={{flexDirection: 'row', gap: 10}}>
+              <Text style={{flex: 1, color: C.teal, fontSize: 13, fontWeight: '600', marginLeft: 10}}>🌍 English Translation</Text>
+              <Pressable onPress={() => setShowTranslation(false)} hitSlop={10}>
+                <Text style={s.lyricWinBtn}>✖</Text>
+              </Pressable>
+            </View>
+          </View>
+          <TextInput
+            style={s.lyricsInput}
+            value={lyricsEnglish}
+            onChangeText={setLyricsEnglish}
+            placeholder="Enter English translation of your lyrics here..."
+            placeholderTextColor="rgba(0,217,192,0.2)"
+            multiline
+            textAlignVertical="top"
+          />
         </Animated.View>
       )}
 
