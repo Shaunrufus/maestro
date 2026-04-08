@@ -1,24 +1,14 @@
-# backend/nixpacks.toml — MAESTRO Production v3
-# ffmpeg: REQUIRED for librosa to decode m4a/mp3/aac files
-# libsndfile: soundfile dependency for WAV read/write
-# NOTE: praat removed — no longer needed (pure Python autotune)
-
 [phases.setup]
-nixPkgs = [
-  "python311",
-  "python311Packages.pip",
-  "ffmpeg",
-  "libsndfile",
-]
+# ffmpeg: required for librosa to decode m4a/aac/mp3 files
+# libsndfile: required for soundfile Python package
+nixPkgs = ["ffmpeg", "libsndfile", "python311"]
 
 [phases.install]
 cmds = [
-  "python3.11 -m pip install --upgrade pip",
-  "python3.11 -m pip install -r requirements.txt --no-cache-dir",
-  # Download SoundFont for instrument synthesis
-  "mkdir -p soundfonts",
-  "python3.11 -c \"from app.services.download_soundfont import download_soundfont; download_soundfont()\" || echo 'SoundFont download skipped'",
+  "pip install --upgrade pip",
+  "pip install -r requirements.txt --no-cache-dir"
 ]
 
 [start]
-cmd = "python3.11 -m uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1"
+cmd = "uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1 --timeout-keep-alive 60"
+

@@ -1,34 +1,34 @@
-# backend/requirements.txt — MAESTRO Production v3
-# Clean deps: NO praat-parselmouth, NO psola package.
-# All pitch correction is pure Python inside autotune.py.
-# Pinned to numpy 1.x for librosa compatibility.
+# MAESTRO Backend Requirements — v4 FINAL
+# ==========================================
+# RULES:
+# 1. NO torch, NO transformers, NO audiocraft locally — use HF API instead
+# 2. numpy MUST be 1.x (librosa not yet compatible with 2.x)
+# 3. ALL audio processing is lazy-imported (not at module level) to prevent OOM
 
-# ── Web Framework ──────────────────────────────────────────────────────────────
+# Web framework
 fastapi==0.111.0
 uvicorn[standard]==0.30.1
 python-multipart==0.0.9
 
-# ── Audio Processing ───────────────────────────────────────────────────────────
-librosa==0.10.2                    # pyin pitch detection, key/BPM analysis
-soundfile==0.12.1                  # WAV read/write
-numpy==1.26.4                      # MUST be 1.x for librosa + scipy compatibility
-scipy==1.13.1                      # Signal processing for PSOLA
-audioread==3.0.1                   # Backend for librosa to decode m4a via ffmpeg
+# Audio processing (lazy-imported inside functions, never at module level)
+librosa==0.10.2
+soundfile==0.12.1
+numpy==1.26.4
+scipy==1.13.1
+audioread==3.0.1
 
-# ── MIDI / Music ───────────────────────────────────────────────────────────────
-mido==1.3.2                        # MIDI file generation
+# HTTP (for HuggingFace MusicGen API calls, async)
+httpx==0.27.0
+aiofiles==23.2.1
 
-# ── AI / HTTP ─────────────────────────────────────────────────────────────────
-httpx==0.27.0                      # Async HTTP for HuggingFace MusicGen API
-aiofiles==23.2.1                   # Async file handling
-openai==1.30.1                     # OpenRouter (GURU AI) via base_url override
-
-# ── Database / Storage ─────────────────────────────────────────────────────────
+# Supabase
 supabase==2.5.1
-storage3==0.7.7
 
-# ── Utilities ──────────────────────────────────────────────────────────────────
+# AI / OpenRouter (GURU)
+openai==1.30.1
+
+# Utilities
 python-dotenv==1.0.1
 pydantic==2.7.1
-pydantic-settings==2.3.1
-tenacity==8.3.0                    # Retry logic for API calls
+tenacity==8.3.0
+
