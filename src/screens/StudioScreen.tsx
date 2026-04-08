@@ -379,7 +379,7 @@ export default function StudioScreen({ navigation, route }: any) {
 
       // Read file bytes asynchronously
       const fileBytes = await FileSystem.readAsStringAsync(recordingUri, {
-        encoding: FileSystem.EncodingType.Base64,
+        encoding: 'base64',
       });
 
       // Build FormData with actual file bytes

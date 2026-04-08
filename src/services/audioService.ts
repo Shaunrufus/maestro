@@ -81,7 +81,7 @@ export async function uploadToSupabase(
   try {
     // Step 1: Read file as base64 string
     const base64 = await FileSystem.readAsStringAsync(localUri, {
-      encoding: FileSystem.EncodingType.Base64,
+      encoding: 'base64',
     });
 
     // Step 2: Decode base64 → binary string → Uint8Array
