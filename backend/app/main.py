@@ -79,9 +79,3 @@ async def health():
 async def root():
     return {"message": "MAESTRO API is live", "docs": "/docs"}
 
-app.include_router(audio_router)
-app.include_router(guru_router)
-app.include_router(multitrack_router)
-app.include_router(band_router)
-app.include_router(editor_router)
-
