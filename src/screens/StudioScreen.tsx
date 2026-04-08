@@ -459,36 +459,47 @@ export default function StudioScreen({ navigation, route }: any) {
   const startArrangementPolling = async (sid: string) => {
     setProcessingMsg('🎹 Generating arrangements...');
     let attempts = 0;
-    const maxAttempts = 40; // 80 seconds max
+    const maxAttempts = 80; // 160 seconds max (increased from 40)
 
     const poll = setInterval(async () => {
       attempts++;
       if (attempts > maxAttempts) {
         clearInterval(poll);
-        setProcessingMsg('⏱️ Arrangements timed out');
+        console.error('[Polling] Timed out after 160 seconds');
+        setProcessingMsg('⏱️ Arrangements timed out (>2min)');
+        setStatus('ready'); // Still show results screen
         return;
       }
 
       try {
-        // Check status endpoint first
+        // Check status endpoint
         const statusRes = await fetch(`${BACKEND_URL}/audio/arrangements/${sid}/status`);
-        if (!statusRes.ok) return;
+        
+        if (!statusRes.ok) {
+          console.error(`[Polling] Status returned ${statusRes.status}`);
+          return;
+        }
 
         const statusData = await statusRes.json();
-        const { ready, total } = statusData;
+        const { ready, total, status: pollStatus } = statusData;
 
-        if (ready >= total) {
+        console.log(`[Polling] ${attempts}s: ${ready}/${total} ready (status=${pollStatus})`);
+
+        if (ready >= total && total > 0) {
           clearInterval(poll);
+          console.log('[Polling] ✅ All arrangements complete!');
           setProcessingMsg('✅ Arrangements ready!');
           setStatus('ready');
-          // Optionally fetch all 6 arrangements
-        } else {
+        } else if (ready > 0) {
           setProcessingMsg(`🎹 ${ready}/${total} arrangements ready...`);
+        } else {
+          setProcessingMsg(`⏳ Rendering arrangements (${attempts * 2}s)...`);
         }
-      } catch (e) {
-        console.log('[Polling] Status check:', e);
+      } catch (e: any) {
+        console.error('[Polling] Error:', e.message);
+        // Don't spam the console, just keep polling
       }
-    }, 2000);
+    }, 2000); // Poll every 2 seconds
   };
 
   // ─────────────────────────────────────────────────────────────────────

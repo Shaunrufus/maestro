@@ -164,6 +164,10 @@ async def upload_and_process(
 
     # ── Step 3: Queue arrangement rendering in background ─────────────────────
     session_id = str(uuid.uuid4())[:8]
+    
+    # Initialize session IMMEDIATELY so polling doesn't return 0 for eternity
+    _sessions[session_id] = {}
+    logger.info(f"[Arrangements] Session {session_id}: initialized (polling ready)")
 
     def _render_arrangements():
         try:
@@ -171,15 +175,19 @@ async def upload_and_process(
             chords = analysis.get("chords", [])
             bpm = analysis.get("bpm", 80.0)
             melody = analysis.get("melody_notes", [])
+            
+            logger.info(f"[Arrangements] Rendering for {session_id}: chords={chords}, bpm={bpm}")
             wavs = generate_all_arrangements(chords, bpm, melody)
             _sessions[session_id] = wavs
+            logger.info(f"[Arrangements] Session {session_id}: rendered {len(wavs)} outputs")
             # Evict old sessions
             if len(_sessions) > _MAX_SESSIONS:
                 oldest = next(iter(_sessions))
                 del _sessions[oldest]
-            logger.info(f"[Arrangements] Session {session_id}: rendered {len(wavs)} outputs")
         except Exception as e:
-            logger.error(f"[Arrangements] Render failed: {e}")
+            logger.error(f"[Arrangements] Render failed for {session_id}: {e}", exc_info=True)
+            # Keep session alive but mark as error via empty dict
+            _sessions[session_id] = {}
 
     background_tasks.add_task(_render_arrangements)
 
@@ -255,9 +263,21 @@ async def stream_arrangement(session_id: str, label: str):
 async def arrangement_status(session_id: str):
     """Check how many arrangements are ready."""
     session = _sessions.get(session_id)
-    if not session:
-        return {"ready": 0, "total": 6, "status": "rendering"}
-    return {"ready": len(session), "total": 6, "status": "complete" if len(session) == 6 else "partial"}
+    if session is None:
+        # Session doesn't exist
+        return {"ready": 0, "total": 6, "status": "not_found", "session_id": session_id}
+    
+    ready = len(session)  # Number of arrangement WAVs ready
+    total = 6  # We always generate 6
+    status = "complete" if ready == total else "rendering" if ready == 0 else "partial"
+    
+    return {
+        "ready": ready, 
+        "total": total, 
+        "status": status,
+        "session_id": session_id,
+        "labels": list(session.keys())  # Which ones are ready
+    }
 
 
 # ─── STANDALONE AUTOTUNE ──────────────────────────────────────────────────────
