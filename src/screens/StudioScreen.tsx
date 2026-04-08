@@ -28,7 +28,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Audio } from 'expo-av';
-import * as FileSystem from 'expo-file-system';
 import { LinearGradient } from 'expo-linear-gradient';
 import { playInstrumentChord } from '../services/instrumentService';
 import { db, supabase } from '../services/supabase';
@@ -377,12 +376,8 @@ export default function StudioScreen({ navigation, route }: any) {
       setStatus('processing_autotune');
       setProcessingMsg('🚀 Sending to AI engine...');
 
-      // Read file bytes asynchronously
-      const fileBytes = await FileSystem.readAsStringAsync(recordingUri, {
-        encoding: 'base64',
-      });
-
-      // Build FormData with actual file bytes
+      // Build FormData with recording URI
+      // Note: FormData handles file URIs automatically - no need to read bytes
       const formData = new FormData();
       formData.append('file', {
         uri: recordingUri,

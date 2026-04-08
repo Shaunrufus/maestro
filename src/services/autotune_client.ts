@@ -13,7 +13,7 @@
  *   import { applyAutotune, testAutotuneEndpoint } from '../services/autotune_client';
  */
 
-import * as FileSystem from 'expo-file-system';
+import { File, Paths } from 'expo-file-system';
 
 const BACKEND_URL = 'https://maestro-production-c525.up.railway.app';
 
@@ -97,9 +97,9 @@ export async function applyAutotune(
 
   // ── 3. Save WAV locally ───────────────────────────────────────────────────
   const timestamp  = Date.now();
-  const cacheDir   = FileSystem.cacheDirectory || FileSystem.documentDirectory;
-  const localPath  = `${cacheDir}autotuned_${timestamp}.wav`;
-  await FileSystem.writeAsStringAsync(localPath, data.audio_base64, { encoding: 'base64' });
+  const wavFile = new File(Paths.cache, `autotuned_${timestamp}.wav`);
+  await wavFile.write(data.audio_base64, { encoding: 'base64' });
+  const localPath = wavFile.uri;
 
   console.log(`[AutoTune] ✓ ${meta.engine} | key=${meta.key} | ${meta.auto_tune_pct}% corrected`);
   console.log('[AutoTune] Saved to:', localPath);
