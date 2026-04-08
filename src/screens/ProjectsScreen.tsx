@@ -8,7 +8,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   TextInput, Animated, Dimensions, Modal, ActivityIndicator,
-  RefreshControl,
+  RefreshControl, Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -107,6 +107,30 @@ export function ProjectsScreen() {
     });
   };
 
+  const deleteProject = async (projectId: string, projectName: string) => {
+    Alert.alert(
+      'Delete Project',
+      `Remove "${projectName}"? All recordings will be kept in history.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const { error } = await supabase.from('projects').delete().eq('id', projectId);
+              if (error) throw error;
+              setProjects(prev => prev.filter(p => p.id !== projectId));
+            } catch (e) {
+              console.error('[Projects] Delete error:', e);
+              Alert.alert('Error', 'Could not delete project');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const formatDate = (iso: string) => {
     const d = new Date(iso);
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -174,9 +198,20 @@ export function ProjectsScreen() {
                 
                 {isExpanded && (
                   <View style={s.expandedArea}>
-                    <TouchableOpacity style={s.studioBtn} onPress={() => openProject(proj)}>
-                      <Text style={s.studioBtnTxt}>+ Enter Studio</Text>
-                    </TouchableOpacity>
+                    <View style={s.actionBtnRow}>
+                      <TouchableOpacity
+                        style={[s.studioBtn, { flex: 1 }]}
+                        onPress={() => openProject(proj)}
+                      >
+                        <Text style={s.studioBtnTxt}>✓ Enter Studio</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[s.studioBtn, { flex: 1, backgroundColor: 'rgba(255,59,92,0.2)', marginLeft: 8 }]}
+                        onPress={() => deleteProject(proj.id, proj.name)}
+                      >
+                        <Text style={[s.studioBtnTxt, { color: '#FF3B5C' }]}>🗑 Delete</Text>
+                      </TouchableOpacity>
+                    </View>
                     
                     {projectRecordings.length === 0 ? (
                       <Text style={s.noRecTxt}>No recordings in this project yet.</Text>
@@ -295,6 +330,9 @@ const s = StyleSheet.create({
     padding: 12, backgroundColor: 'rgba(0,0,0,0.4)',
     borderBottomLeftRadius: 14, borderBottomRightRadius: 14,
     borderWidth: 1, borderTopWidth: 0, borderColor: 'rgba(255,255,255,0.06)',
+  },
+  actionBtnRow: {
+    flexDirection: 'row', marginBottom: 10, gap: 8,
   },
   studioBtn: {
     paddingVertical: 10, backgroundColor: 'rgba(212,175,55,0.1)',

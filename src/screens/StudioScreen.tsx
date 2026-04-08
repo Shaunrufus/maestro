@@ -33,7 +33,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { playInstrumentChord } from '../services/instrumentService';
 import { db, supabase } from '../services/supabase';
 import { applyAutotune } from '../services/autotune_client';
-import { File, Paths } from 'expo-file-system';
 
 function generateUUID() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -229,6 +228,32 @@ export default function StudioScreen({ navigation, route }: any) {
       ring3.setValue(0);
     }
   }, [status]);
+
+  // Load project metadata when projectId is provided via route params
+  useEffect(() => {
+    if (!projectId) return; // No project to load
+    
+    const loadProjectData = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('projects')
+          .select('*')
+          .eq('id', projectId)
+          .single();
+        
+        if (error) throw error;
+        if (data) {
+          setProjectName(data.name);
+          // You can add more metadata loading here (BPM, Key, etc.) if needed
+          console.log(`[Studio] Loaded project: ${data.name}`);
+        }
+      } catch (err) {
+        console.error('[Studio] Failed to load project:', err);
+      }
+    };
+    
+    loadProjectData();
+  }, [projectId]);
 
   // ─────────────────────────────────────────────────────────────────────
   // RECORD HANDLER
